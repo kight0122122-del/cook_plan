@@ -219,7 +219,7 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
               <input
                 style={inputStyle}
                 type="number"
-                min={getInputStep(unit)}
+                min="0.1"
                 step={getInputStep(unit)}
                 value={quantity}
                 onChange={e => setQuantity(e.target.value)}
@@ -322,6 +322,7 @@ export default function FridgeApp() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [expandedHistory, setExpandedHistory] = useState(null);
   const [suggestCount, setSuggestCount] = useState(0);
 
   const [servings, setServings] = useState(2);
@@ -565,7 +566,10 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     let updated = [...fridge];
     for (const used of suggestion.usedIngredients) {
       updated = updated.map(i => {
-        if (i.name !== used.name) return i;
+        const match = i.name === used.name
+          || i.name.includes(used.name)
+          || used.name.includes(i.name);
+        if (!match) return i;
         return { ...i, quantity: Math.max(0, i.quantity - used.quantity) };
       }).filter(i => i.quantity > 0);
     }
@@ -578,6 +582,8 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       description: suggestion.description,
       cookTime: suggestion.cookTime,
       servings,
+      steps: suggestion.steps,
+      comment: suggestion.comment,
       usedIngredients: suggestion.usedIngredients,
     };
     const newHistory = [record, ...history].slice(0, 50);
@@ -752,6 +758,29 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       {showPrefs && !suggesting && (
         <button onClick={getSuggestion} style={primaryBtn}>この条件で提案してもらう ✨</button>
       )}
+      {showPrefs && !suggesting && history.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", marginBottom: 10, letterSpacing: 0.5 }}>📖 以前作った料理をまた作る</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {history.slice(0, 3).map(rec => (
+              <button
+                key={rec.id}
+                onClick={() => { setSuggestion({ ...rec }); setShowPrefs(false); }}
+                style={{
+                  width: "100%", padding: "12px 16px", border: "1.5px solid #E8E8E8", borderRadius: 12,
+                  background: "#fff", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1A1A" }}>{rec.name}</div>
+                  <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>⏱ {rec.cookTime}・👥 {rec.servings}人分</div>
+                </div>
+                <div style={{ fontSize: 12, color: "#BBB" }}>{rec.date}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {suggesting && (
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🍳</div>
@@ -826,24 +855,60 @@ JSONのみ返し、説明文やMarkdownは不要です。`
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {history.map(rec => (
-            <div key={rec.id} style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div style={{ fontWeight: 800, fontSize: 17, color: "#1A1A1A" }}>{rec.name}</div>
-                <div style={{ fontSize: 12, color: "#BBB", whiteSpace: "nowrap", marginLeft: 12 }}>{rec.date}</div>
+          {history.map(rec => {
+            const isExpanded = expandedHistory === rec.id;
+            return (
+              <div key={rec.id} style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <div style={{ fontWeight: 800, fontSize: 17, color: "#1A1A1A" }}>{rec.name}</div>
+                  <div style={{ fontSize: 12, color: "#BBB", whiteSpace: "nowrap", marginLeft: 12 }}>{rec.date}</div>
+                </div>
+                <div style={{ fontSize: 13, color: "#888", marginBottom: 10 }}>{rec.description}</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <span style={{ background: "#F0F0F0", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#666" }}>⏱ {rec.cookTime}</span>
+                  <span style={{ background: "#F0F0F0", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#666" }}>👥 {rec.servings}人分</span>
+                  {rec.usedIngredients?.map((ing, i) => (
+                    <span key={i} style={{ background: "#E8F5EE", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#2E7D5A" }}>{ing.name}</span>
+                  ))}
+                </div>
+
+                {isExpanded && rec.steps && (
+                  <div style={{ borderTop: "1px solid #F0F0F0", paddingTop: 14, marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#999", marginBottom: 10 }}>作り方</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {rec.steps.map((step, i) => (
+                        <div key={i} style={{ display: "flex", gap: 10 }}>
+                          <span style={{ background: "#E8F5EE", color: "#2E7D5A", fontWeight: 700, fontSize: 12, width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+                          <span style={{ fontSize: 13, color: "#333", lineHeight: 1.6 }}>{step}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {rec.comment && (
+                      <div style={{ background: "#FFF9F0", borderRadius: 12, padding: 12, marginTop: 12, borderLeft: "3px solid #FFB347" }}>
+                        <div style={{ fontSize: 11, color: "#CC8800", fontWeight: 700, marginBottom: 2 }}>👨‍🍳 シェフより</div>
+                        <div style={{ fontSize: 12, color: "#886600", lineHeight: 1.6 }}>{rec.comment}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => setExpandedHistory(isExpanded ? null : rec.id)}
+                    style={{ ...secondaryBtn, flex: 1, padding: "10px" , fontSize: 13 }}
+                  >
+                    {isExpanded ? "閉じる" : "レシピを見る"}
+                  </button>
+                  <button
+                    onClick={() => { setSuggestion({ ...rec, usedIngredients: rec.usedIngredients }); setShowPrefs(false); switchTab("suggest"); }}
+                    style={{ ...secondaryBtn, flex: 1, padding: "10px", fontSize: 13, color: "#2E7D5A", borderColor: "#2E7D5A" }}
+                  >
+                    🍳 また作る
+                  </button>
+                </div>
               </div>
-              <div style={{ fontSize: 13, color: "#888", marginBottom: 10 }}>{rec.description}</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ background: "#F0F0F0", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#666" }}>⏱ {rec.cookTime}</span>
-                <span style={{ background: "#F0F0F0", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#666" }}>👥 {rec.servings}人分</span>
-                {rec.usedIngredients?.map((ing, i) => (
-                  <span key={i} style={{ background: "#E8F5EE", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#2E7D5A" }}>
-                    {ing.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
