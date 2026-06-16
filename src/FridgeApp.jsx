@@ -218,7 +218,18 @@ function AddIngredientModal({ onAdd, onClose }) {
 
 const labelStyle = { fontSize: 12, fontWeight: 700, color: "#999", display: "block", marginBottom: 6 };
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  return isMobile;
+}
+
 export default function FridgeApp() {
+  const isMobile = useIsMobile();
   const [fridge, setFridge] = useState([]);
   const [tab, setTab] = useState("fridge");
   const [scanning, setScanning] = useState(false);
@@ -435,271 +446,304 @@ JSONのみ返し、説明文やMarkdownは不要です。`
 
   const remainingFree = Math.max(0, FREE_LIMIT - suggestCount);
 
-  return (
-    <div style={{ fontFamily: "'Hiragino Sans', 'Yu Gothic UI', sans-serif", background: "#FAFAF7", minHeight: "100vh", maxWidth: 480, margin: "0 auto", position: "relative" }}>
-      {toast && (
-        <div style={{
-          position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
-          background: toast.type === "error" ? "#FF6B6B" : "#4CAF82",
-          color: "#fff", padding: "10px 20px", borderRadius: 24, fontSize: 14,
-          zIndex: 1000, fontWeight: 600, boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
-          whiteSpace: "nowrap"
-        }}>
-          {toast.msg}
+  const tabs = [["fridge", "🧊", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"]];
+
+  function switchTab(key) {
+    setTab(key);
+    if (key === "suggest") { setSuggestion(null); setShowPrefs(true); }
+  }
+
+  /* ---- 共通コンテンツブロック ---- */
+  const fridgeContent = (
+    <>
+      {fridge.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: "#BBB" }}>
+          <div style={{ fontSize: 60, marginBottom: 12 }}>🧊</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#CCC" }}>冷蔵庫が空です</div>
+          <div style={{ fontSize: 13, marginTop: 8 }}>レシートをスキャンして食材を登録しよう</div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+          {Object.entries(grouped).map(([cat, items]) => (
+            <div key={cat} style={{ marginBottom: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>{getCategoryEmoji(cat)}</span> {cat.toUpperCase()}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {items.map(item => (
+                  <div key={item.name} style={{
+                    background: "#fff", borderRadius: 14, padding: "12px 16px",
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 15, color: "#1A1A1A" }}>{item.name}</div>
+                      <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{item.quantity}{item.unit}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button onClick={() => adjustQty(item.name, -1)} style={btnStyle("#F5F5F5", "#666")}>−</button>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: "#333", minWidth: 20, textAlign: "center" }}>{item.quantity}</span>
+                      <button onClick={() => adjustQty(item.name, 1)} style={btnStyle("#E8F5EE", "#2E7D5A")}>＋</button>
+                      <button onClick={() => removeIngredient(item.name)} style={btnStyle("#FFF0F0", "#FF6B6B")}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
+      <button onClick={() => setShowAddModal(true)} style={{
+        width: "100%", padding: "14px", border: "1.5px dashed #D4EBE0", borderRadius: 14,
+        background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 14,
+        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        marginTop: 16, marginBottom: 16,
+      }}>
+        ＋ 食材を手動で追加
+      </button>
+      <AdPlaceholder label="広告" />
+    </>
+  );
 
+  const scanContent = (
+    <div style={{ maxWidth: isMobile ? "100%" : 560 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1A1A", marginBottom: 4 }}>レシートをスキャン</div>
+        <div style={{ fontSize: 13, color: "#999", marginBottom: 16 }}>レシートや食材の写真を撮ると、自動で冷蔵庫に追加します</div>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleImageUpload} style={{ display: "none" }} />
+        <button onClick={() => fileRef.current?.click()} style={{
+          width: "100%", padding: "16px", border: "2px dashed #D4EBE0", borderRadius: 12,
+          background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 15,
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+        }}>
+          <span style={{ fontSize: 24 }}>📷</span> 写真を選択 / 撮影
+        </button>
+      </div>
+      <button onClick={() => setShowAddModal(true)} style={{
+        width: "100%", padding: "14px", border: "1.5px dashed #D4EBE0", borderRadius: 14,
+        background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 14,
+        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        marginBottom: 16,
+      }}>
+        ✏️ 手動で食材を入力する
+      </button>
+      {imagePreview && (
+        <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+          <img src={imagePreview} alt="preview" style={{ width: "100%", maxHeight: 220, objectFit: "cover" }} />
+          {scanning && (
+            <div style={{ padding: 20, textAlign: "center" }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+              <div style={{ color: "#2E7D5A", fontWeight: 600 }}>食材を読み取り中...</div>
+            </div>
+          )}
+        </div>
+      )}
+      {scanResult && (
+        <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, color: "#1A1A1A" }}>
+            🎉 {scanResult.length}品を検出しました
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+            {scanResult.map((item, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#F7FBF9", borderRadius: 10 }}>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{getCategoryEmoji(item.category)} {item.name}</span>
+                <span style={{ color: "#2E7D5A", fontWeight: 700, fontSize: 14 }}>{item.quantity}{item.unit}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={addScannedItems} style={primaryBtn}>冷蔵庫に追加する</button>
+        </div>
+      )}
+    </div>
+  );
+
+  const suggestContent = (
+    <div style={{ maxWidth: isMobile ? "100%" : 640 }}>
+      {remainingFree > 0 && !suggestion && !suggesting && (
+        <div style={{
+          background: "#FFF9F0", border: "1px solid #FFE0A0", borderRadius: 12,
+          padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#886600",
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span>⚡</span>
+          <span>無料で使えるあと <strong>{remainingFree}回</strong> ／ 以降はログインが必要です</span>
+        </div>
+      )}
+      {showPrefs && !suggesting && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 20 }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10 }}>👥 何人分？</div>
+            <ChoiceChip options={SERVING_OPTIONS} value={servings} onChange={setServings} />
+          </div>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10 }}>⏱ 手間は？</div>
+            <ChoiceChip options={EFFORT_OPTIONS} value={effort} onChange={setEffort} />
+          </div>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", gridColumn: isMobile ? "1" : "1 / -1" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10 }}>🍱 食べたいジャンル</div>
+            <ChoiceChip options={MEAL_OPTIONS} value={mealType} onChange={setMealType} />
+          </div>
+        </div>
+      )}
+      {showPrefs && !suggesting && (
+        <button onClick={getSuggestion} style={primaryBtn}>この条件で提案してもらう ✨</button>
+      )}
+      {suggesting && (
+        <div style={{ textAlign: "center", padding: "60px 20px" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🍳</div>
+          <div style={{ color: "#2E7D5A", fontWeight: 700, fontSize: 15 }}>メニューを考えています...</div>
+          <div style={{ color: "#AAA", fontSize: 13, marginTop: 8 }}>
+            {servings}人分・{EFFORT_OPTIONS.find(e => e.value === effort)?.label}・{mealType}
+          </div>
+        </div>
+      )}
+      {suggestion && (
+        <div>
+          <div style={{ background: "linear-gradient(135deg, #2E7D5A, #45A876)", borderRadius: 20, padding: 24, color: "#fff", marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.8, marginBottom: 6, letterSpacing: 1 }}>TODAY'S MENU</div>
+            <div style={{ fontSize: 24, fontWeight: 900, marginBottom: 4 }}>{suggestion.name}</div>
+            <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 14 }}>{suggestion.description}</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>⏱ {suggestion.cookTime}</span>
+              <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>👥 {servings}人分</span>
+              <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
+                {EFFORT_OPTIONS.find(e => e.value === effort)?.emoji} {EFFORT_OPTIONS.find(e => e.value === effort)?.label}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 12 }}>使う食材</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {suggestion.usedIngredients?.map((ing, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                    <span style={{ color: "#333" }}>• {ing.name}</span>
+                    <span style={{ color: "#FF6B6B", fontWeight: 600 }}>−{ing.quantity}{ing.unit}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 12 }}>作り方</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {suggestion.steps?.map((step, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10 }}>
+                    <span style={{ background: "#E8F5EE", color: "#2E7D5A", fontWeight: 700, fontSize: 12, width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{i + 1}</span>
+                    <span style={{ fontSize: 14, color: "#333", lineHeight: 1.6 }}>{step}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          {suggestion.comment && (
+            <div style={{ background: "#FFF9F0", borderRadius: 16, padding: 16, marginBottom: 16, borderLeft: "3px solid #FFB347" }}>
+              <div style={{ fontSize: 12, color: "#CC8800", fontWeight: 700, marginBottom: 4 }}>👨‍🍳 シェフより</div>
+              <div style={{ fontSize: 13, color: "#886600", lineHeight: 1.6 }}>{suggestion.comment}</div>
+            </div>
+          )}
+          <AdPlaceholder label="広告" />
+          <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+            <button onClick={resetSuggest} style={{ ...secondaryBtn, flex: 1 }}>条件を変える</button>
+            <button onClick={() => { setSuggestion(null); getSuggestion(); }} style={{ ...secondaryBtn, flex: 1 }}>別の料理</button>
+          </div>
+          <button onClick={consumeIngredients} style={primaryBtn}>これを作る！🍳</button>
+        </div>
+      )}
+    </div>
+  );
+
+  const contentMap = { fridge: fridgeContent, scan: scanContent, suggest: suggestContent };
+
+  /* ---- スマホレイアウト ---- */
+  if (isMobile) {
+    return (
+      <div style={{ fontFamily: "'Hiragino Sans', 'Yu Gothic UI', sans-serif", background: "#FAFAF7", minHeight: "100vh", maxWidth: 480, margin: "0 auto", position: "relative" }}>
+        {toast && <Toast toast={toast} />}
+        {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+        {showAddModal && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setShowAddModal(false)} />}
+        <div style={{ background: "#fff", borderBottom: "1px solid #F0EDE8", padding: "20px 20px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <span style={{ fontSize: 28 }}>🧊</span>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#1A1A1A" }}>うちの冷蔵庫</div>
+              <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>{fridge.length}品 在庫中</div>
+            </div>
+          </div>
+          <div style={{ display: "flex" }}>
+            {tabs.map(([key, emoji, label]) => (
+              <button key={key} onClick={() => switchTab(key)} style={{
+                flex: 1, padding: "10px 0", border: "none", background: "none",
+                fontSize: 13, fontWeight: tab === key ? 700 : 500,
+                color: tab === key ? "#2E7D5A" : "#999",
+                borderBottom: tab === key ? "2.5px solid #2E7D5A" : "2.5px solid transparent",
+                cursor: "pointer",
+              }}>{emoji} {label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ padding: 16, paddingBottom: 100 }}>
+          {contentMap[tab]}
+        </div>
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  /* ---- PCレイアウト ---- */
+  return (
+    <div style={{ fontFamily: "'Hiragino Sans', 'Yu Gothic UI', sans-serif", background: "#FAFAF7", minHeight: "100vh", display: "flex" }}>
+      {toast && <Toast toast={toast} />}
       {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
       {showAddModal && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setShowAddModal(false)} />}
 
-      {/* Header */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #F0EDE8", padding: "20px 20px 0" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <span style={{ fontSize: 28 }}>🧊</span>
+      {/* サイドバー */}
+      <div style={{
+        width: 240, background: "#fff", borderRight: "1px solid #F0EDE8",
+        padding: "32px 20px", display: "flex", flexDirection: "column", gap: 8,
+        position: "sticky", top: 0, height: "100vh",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 32 }}>
+          <span style={{ fontSize: 32 }}>🧊</span>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: "#1A1A1A", letterSpacing: "-0.5px" }}>うちの冷蔵庫</div>
-            <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>{fridge.length}品 在庫中</div>
+            <div style={{ fontSize: 17, fontWeight: 900, color: "#1A1A1A" }}>うちの冷蔵庫</div>
+            <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>{fridge.length}品 在庫中</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 0 }}>
-          {[["fridge", "🧊 冷蔵庫"], ["scan", "📷 スキャン"], ["suggest", "✨ 提案"]].map(([key, label]) => (
-            <button key={key} onClick={() => { setTab(key); if (key === "suggest") { setSuggestion(null); setShowPrefs(true); } }} style={{
-              flex: 1, padding: "10px 0", border: "none", background: "none",
-              fontSize: 13, fontWeight: tab === key ? 700 : 500,
-              color: tab === key ? "#2E7D5A" : "#999",
-              borderBottom: tab === key ? "2.5px solid #2E7D5A" : "2.5px solid transparent",
-              cursor: "pointer", transition: "all 0.2s"
-            }}>{label}</button>
-          ))}
+        {tabs.map(([key, emoji, label]) => (
+          <button key={key} onClick={() => switchTab(key)} style={{
+            width: "100%", padding: "12px 16px", border: "none", borderRadius: 12, textAlign: "left",
+            background: tab === key ? "#E8F5EE" : "none",
+            color: tab === key ? "#2E7D5A" : "#666",
+            fontWeight: tab === key ? 700 : 500, fontSize: 15,
+            cursor: "pointer", display: "flex", alignItems: "center", gap: 10, transition: "all 0.15s",
+          }}>
+            <span style={{ fontSize: 20 }}>{emoji}</span> {label}
+          </button>
+        ))}
+      </div>
+
+      {/* メインコンテンツ */}
+      <div style={{ flex: 1, padding: "40px 48px", overflowY: "auto" }}>
+        <div style={{ fontSize: 22, fontWeight: 900, color: "#1A1A1A", marginBottom: 24 }}>
+          {tabs.find(([key]) => key === tab)?.[1]} {tabs.find(([key]) => key === tab)?.[2]}
         </div>
+        {contentMap[tab]}
       </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
 
-      {/* Content */}
-      <div style={{ padding: 16, paddingBottom: 100 }}>
-
-        {/* FRIDGE TAB */}
-        {tab === "fridge" && (
-          <>
-            {fridge.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "60px 20px", color: "#BBB" }}>
-                <div style={{ fontSize: 60, marginBottom: 12 }}>🧊</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: "#CCC" }}>冷蔵庫が空です</div>
-                <div style={{ fontSize: 13, marginTop: 8 }}>レシートをスキャンして食材を登録しよう</div>
-              </div>
-            ) : (
-              Object.entries(grouped).map(([cat, items]) => (
-                <div key={cat} style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>{getCategoryEmoji(cat)}</span> {cat.toUpperCase()}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {items.map(item => (
-                      <div key={item.name} style={{
-                        background: "#fff", borderRadius: 14, padding: "12px 16px",
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
-                      }}>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: 15, color: "#1A1A1A" }}>{item.name}</div>
-                          <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{item.quantity}{item.unit}</div>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <button onClick={() => adjustQty(item.name, -1)} style={btnStyle("#F5F5F5", "#666")}>−</button>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: "#333", minWidth: 20, textAlign: "center" }}>{item.quantity}</span>
-                          <button onClick={() => adjustQty(item.name, 1)} style={btnStyle("#E8F5EE", "#2E7D5A")}>＋</button>
-                          <button onClick={() => removeIngredient(item.name)} style={btnStyle("#FFF0F0", "#FF6B6B")}>✕</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))
-            )}
-
-            {/* 手動追加ボタン */}
-            <button onClick={() => setShowAddModal(true)} style={{
-              width: "100%", padding: "14px", border: "1.5px dashed #D4EBE0", borderRadius: 14,
-              background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 14,
-              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              marginBottom: 16,
-            }}>
-              ＋ 食材を手動で追加
-            </button>
-
-            <AdPlaceholder label="広告" />
-          </>
-        )}
-
-        {/* SCAN TAB */}
-        {tab === "scan" && (
-          <div>
-            <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1A1A", marginBottom: 4 }}>レシートをスキャン</div>
-              <div style={{ fontSize: 13, color: "#999", marginBottom: 16 }}>レシートや食材の写真を撮ると、自動で冷蔵庫に追加します</div>
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleImageUpload} style={{ display: "none" }} />
-              <button onClick={() => fileRef.current?.click()} style={{
-                width: "100%", padding: "16px", border: "2px dashed #D4EBE0", borderRadius: 12,
-                background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 15,
-                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-              }}>
-                <span style={{ fontSize: 24 }}>📷</span> 写真を選択 / 撮影
-              </button>
-            </div>
-
-            <div style={{ marginBottom: 8 }}>
-              <button onClick={() => setShowAddModal(true)} style={{
-                width: "100%", padding: "14px", border: "1.5px dashed #D4EBE0", borderRadius: 14,
-                background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 14,
-                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                marginBottom: 16,
-              }}>
-                ✏️ 手動で食材を入力する
-              </button>
-            </div>
-
-            {imagePreview && (
-              <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
-                <img src={imagePreview} alt="preview" style={{ width: "100%", maxHeight: 220, objectFit: "cover" }} />
-                {scanning && (
-                  <div style={{ padding: 20, textAlign: "center" }}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
-                    <div style={{ color: "#2E7D5A", fontWeight: 600 }}>食材を読み取り中...</div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {scanResult && (
-              <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, color: "#1A1A1A" }}>
-                  🎉 {scanResult.length}品を検出しました
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-                  {scanResult.map((item, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#F7FBF9", borderRadius: 10 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{getCategoryEmoji(item.category)} {item.name}</span>
-                      <span style={{ color: "#2E7D5A", fontWeight: 700, fontSize: 14 }}>{item.quantity}{item.unit}</span>
-                    </div>
-                  ))}
-                </div>
-                <button onClick={addScannedItems} style={primaryBtn}>冷蔵庫に追加する</button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* SUGGEST TAB */}
-        {tab === "suggest" && (
-          <div>
-            {/* 残り回数バナー */}
-            {remainingFree > 0 && !suggestion && !suggesting && (
-              <div style={{
-                background: "#FFF9F0", border: "1px solid #FFE0A0", borderRadius: 12,
-                padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#886600",
-                display: "flex", alignItems: "center", gap: 8,
-              }}>
-                <span>⚡</span>
-                <span>無料で使えるあと <strong>{remainingFree}回</strong> ／ 以降はログインが必要です</span>
-              </div>
-            )}
-
-            {showPrefs && !suggesting && (
-              <div>
-                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10, letterSpacing: 0.5 }}>👥 何人分？</div>
-                  <ChoiceChip options={SERVING_OPTIONS} value={servings} onChange={setServings} />
-                </div>
-
-                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10, letterSpacing: 0.5 }}>⏱ どのくらい手間をかける？</div>
-                  <ChoiceChip options={EFFORT_OPTIONS} value={effort} onChange={setEffort} />
-                </div>
-
-                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 20 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10, letterSpacing: 0.5 }}>🍱 食べたいジャンル</div>
-                  <ChoiceChip options={MEAL_OPTIONS} value={mealType} onChange={setMealType} />
-                </div>
-
-                <button onClick={getSuggestion} style={primaryBtn}>この条件で提案してもらう ✨</button>
-              </div>
-            )}
-
-            {suggesting && (
-              <div style={{ textAlign: "center", padding: "60px 20px" }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>🍳</div>
-                <div style={{ color: "#2E7D5A", fontWeight: 700, fontSize: 15 }}>メニューを考えています...</div>
-                <div style={{ color: "#AAA", fontSize: 13, marginTop: 8 }}>
-                  {servings}人分・{EFFORT_OPTIONS.find(e => e.value === effort)?.label}・{mealType}
-                </div>
-              </div>
-            )}
-
-            {suggestion && (
-              <div>
-                <div style={{ background: "linear-gradient(135deg, #2E7D5A, #45A876)", borderRadius: 20, padding: 24, color: "#fff", marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.8, marginBottom: 6, letterSpacing: 1 }}>TODAY'S MENU</div>
-                  <div style={{ fontSize: 24, fontWeight: 900, marginBottom: 4 }}>{suggestion.name}</div>
-                  <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 14 }}>{suggestion.description}</div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
-                      ⏱ {suggestion.cookTime}
-                    </span>
-                    <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
-                      👥 {servings}人分
-                    </span>
-                    <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
-                      {EFFORT_OPTIONS.find(e => e.value === effort)?.emoji} {EFFORT_OPTIONS.find(e => e.value === effort)?.label}
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 12, letterSpacing: 0.5 }}>使う食材</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {suggestion.usedIngredients?.map((ing, i) => (
-                      <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
-                        <span style={{ color: "#333" }}>• {ing.name}</span>
-                        <span style={{ color: "#FF6B6B", fontWeight: 600 }}>−{ing.quantity}{ing.unit}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 12, letterSpacing: 0.5 }}>作り方</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {suggestion.steps?.map((step, i) => (
-                      <div key={i} style={{ display: "flex", gap: 10 }}>
-                        <span style={{ background: "#E8F5EE", color: "#2E7D5A", fontWeight: 700, fontSize: 12, width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{i + 1}</span>
-                        <span style={{ fontSize: 14, color: "#333", lineHeight: 1.6 }}>{step}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {suggestion.comment && (
-                  <div style={{ background: "#FFF9F0", borderRadius: 16, padding: 16, marginBottom: 16, borderLeft: "3px solid #FFB347" }}>
-                    <div style={{ fontSize: 12, color: "#CC8800", fontWeight: 700, marginBottom: 4 }}>👨‍🍳 シェフより</div>
-                    <div style={{ fontSize: 13, color: "#886600", lineHeight: 1.6 }}>{suggestion.comment}</div>
-                  </div>
-                )}
-
-                <AdPlaceholder label="広告" />
-
-                <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-                  <button onClick={resetSuggest} style={{ ...secondaryBtn, flex: 1 }}>条件を変える</button>
-                  <button onClick={() => { setSuggestion(null); getSuggestion(); }} style={{ ...secondaryBtn, flex: 1 }}>別の料理</button>
-                </div>
-                <button onClick={consumeIngredients} style={primaryBtn}>これを作る！🍳</button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
+function Toast({ toast }) {
+  return (
+    <div style={{
+      position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
+      background: toast.type === "error" ? "#FF6B6B" : "#4CAF82",
+      color: "#fff", padding: "10px 20px", borderRadius: 24, fontSize: 14,
+      zIndex: 1000, fontWeight: 600, boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+      whiteSpace: "nowrap"
+    }}>
+      {toast.msg}
     </div>
   );
 }
