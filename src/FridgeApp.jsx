@@ -673,6 +673,7 @@ export default function FridgeApp() {
 ・手間レベル「${effortLabel}」に合った料理にしてください
 ・利用可能な調味料の範囲内でレシピを提案してください
 ・【優先：早く使いたい】【期限切れ】【期限まで○日】【登録から○日経過】の食材は最優先で使ってください
+・usedIngredientsの単位は必ず冷蔵庫に登録されている単位と同じにしてください（例：冷蔵庫が「g」なら「g」、「枚」なら「枚」）
 JSONのみ返し、説明文やMarkdownは不要です。`
       );
 
@@ -696,10 +697,6 @@ JSONのみ返し、説明文やMarkdownは不要です。`
           || used.name.includes(i.name);
         if (!match) return i;
         const newQty = Math.max(0, i.quantity - used.quantity);
-        // 単位が違う場合は提案の単位に統一
-        if (i.unit !== used.unit) {
-          return { ...i, quantity: newQty, unit: used.unit };
-        }
         return { ...i, quantity: newQty };
       });
     }
