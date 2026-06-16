@@ -1,0 +1,723 @@
+import { useState, useEffect, useRef } from "react";
+
+const STORAGE_KEY = "fridge-ingredients";
+const SUGGEST_COUNT_KEY = "fridge-suggest-count";
+const FREE_LIMIT = 1;
+
+const categoryEmoji = {
+  野菜: "🥬", 肉: "🥩", 魚: "🐟", 乳製品: "🧀", 卵: "🥚",
+  調味料: "🧂", 穀物: "🍚", 果物: "🍎", 飲み物: "🥤", その他: "🧴",
+};
+
+const CATEGORIES = Object.keys(categoryEmoji);
+const UNITS = ["個", "本", "枚", "袋", "パック", "g", "kg", "ml", "L", "束", "缶", "箱"];
+
+function getCategoryEmoji(category) {
+  return categoryEmoji[category] || "🍱";
+}
+
+async function callClaude(messages, systemPrompt) {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1200,
+      system: systemPrompt,
+      messages,
+    }),
+  });
+  const data = await response.json();
+  return data.content.map(b => b.text || "").join("");
+}
+
+const SERVING_OPTIONS = [
+  { value: 1, label: "1人分", emoji: "🧑" },
+  { value: 2, label: "2人分", emoji: "👫" },
+  { value: 4, label: "4人分", emoji: "👨‍👩‍👧‍👦" },
+];
+
+const EFFORT_OPTIONS = [
+  { value: "quick", label: "ササっと", emoji: "⚡", desc: "15分以内" },
+  { value: "normal", label: "ふつう", emoji: "🙂", desc: "30〜45分" },
+  { value: "weekend", label: "じっくり", emoji: "👨‍🍳", desc: "1時間以上" },
+];
+
+const MEAL_OPTIONS = [
+  { value: "なんでも", label: "なんでも", emoji: "🍱" },
+  { value: "和食", label: "和食", emoji: "🍜" },
+  { value: "洋食", label: "洋食", emoji: "🍝" },
+  { value: "中華", label: "中華", emoji: "🥡" },
+  { value: "丼もの", label: "丼もの", emoji: "🍚" },
+  { value: "スープ", label: "スープ", emoji: "🍲" },
+];
+
+function ChoiceChip({ options, value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {options.map(opt => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          style={{
+            padding: "8px 14px", borderRadius: 24, border: "1.5px solid",
+            borderColor: value === opt.value ? "#2E7D5A" : "#E8E8E8",
+            background: value === opt.value ? "#E8F5EE" : "#fff",
+            color: value === opt.value ? "#2E7D5A" : "#666",
+            fontWeight: value === opt.value ? 700 : 500,
+            fontSize: 13, cursor: "pointer", transition: "all 0.15s",
+            display: "flex", alignItems: "center", gap: 5,
+          }}
+        >
+          <span>{opt.emoji}</span>
+          <span>{opt.label}</span>
+          {opt.desc && <span style={{ fontSize: 11, opacity: 0.7 }}>({opt.desc})</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AdPlaceholder({ label = "広告" }) {
+  return (
+    <div style={{
+      background: "#F0F0F0", border: "1px dashed #CCC", borderRadius: 12,
+      padding: "18px 16px", textAlign: "center", color: "#AAA",
+      fontSize: 12, fontWeight: 600, letterSpacing: 0.5, marginBottom: 16,
+    }}>
+      <div style={{ fontSize: 18, marginBottom: 4 }}>📢</div>
+      {label} (Google AdSense)
+    </div>
+  );
+}
+
+function LoginModal({ onClose }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+      display: "flex", alignItems: "flex-end", zIndex: 2000,
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: "24px 24px 0 0", width: "100%",
+        padding: "32px 24px 40px", maxWidth: 480, margin: "0 auto",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#1A1A1A", marginBottom: 8 }}>
+            無料枠を使い切りました
+          </div>
+          <div style={{ fontSize: 14, color: "#666", lineHeight: 1.7 }}>
+            引き続き料理提案を使うには<br />
+            アカウント登録（無料）が必要です
+          </div>
+        </div>
+
+        <button style={{ ...primaryBtn, marginBottom: 12 }}>
+          Googleでログイン
+        </button>
+        <button style={{ ...primaryBtn, background: "#1A1A1A", marginBottom: 12 }}>
+          メールアドレスで登録
+        </button>
+        <button
+          onClick={onClose}
+          style={{ width: "100%", padding: 14, border: "none", background: "none", color: "#AAA", fontSize: 14, cursor: "pointer" }}
+        >
+          あとで
+        </button>
+
+        <div style={{ textAlign: "center", marginTop: 8, fontSize: 11, color: "#BBB" }}>
+          ※ 登録後は無制限で利用できます。広告は表示されます。
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddIngredientModal({ onAdd, onClose }) {
+  const [name, setName] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [unit, setUnit] = useState("個");
+  const [category, setCategory] = useState("その他");
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const qty = parseFloat(quantity);
+    if (!name.trim() || isNaN(qty) || qty <= 0) return;
+    onAdd({ name: name.trim(), quantity: qty, unit, category });
+  }
+
+  const inputStyle = {
+    width: "100%", padding: "10px 12px", border: "1.5px solid #E8E8E8",
+    borderRadius: 10, fontSize: 14, boxSizing: "border-box",
+    outline: "none", color: "#1A1A1A",
+  };
+
+  const selectStyle = { ...inputStyle, background: "#fff", cursor: "pointer" };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+      display: "flex", alignItems: "flex-end", zIndex: 2000,
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: "24px 24px 0 0", width: "100%",
+        padding: "28px 24px 40px", maxWidth: 480, margin: "0 auto",
+      }}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: "#1A1A1A", marginBottom: 20 }}>
+          ✏️ 食材を手動追加
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>食材名</label>
+            <input
+              style={inputStyle}
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="例：鶏もも肉"
+              autoFocus
+            />
+          </div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>数量</label>
+              <input
+                style={inputStyle}
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={quantity}
+                onChange={e => setQuantity(e.target.value)}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>単位</label>
+              <select style={selectStyle} value={unit} onChange={e => setUnit(e.target.value)}>
+                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom: 22 }}>
+            <label style={labelStyle}>カテゴリ</label>
+            <select style={selectStyle} value={category} onChange={e => setCategory(e.target.value)}>
+              {CATEGORIES.map(c => (
+                <option key={c} value={c}>{getCategoryEmoji(c)} {c}</option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" style={primaryBtn} disabled={!name.trim()}>
+            追加する
+          </button>
+        </form>
+        <button onClick={onClose} style={{ width: "100%", padding: 14, border: "none", background: "none", color: "#AAA", fontSize: 14, cursor: "pointer", marginTop: 8 }}>
+          キャンセル
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const labelStyle = { fontSize: 12, fontWeight: 700, color: "#999", display: "block", marginBottom: 6 };
+
+export default function FridgeApp() {
+  const [fridge, setFridge] = useState([]);
+  const [tab, setTab] = useState("fridge");
+  const [scanning, setScanning] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [suggestCount, setSuggestCount] = useState(0);
+
+  const [servings, setServings] = useState(2);
+  const [effort, setEffort] = useState("normal");
+  const [mealType, setMealType] = useState("なんでも");
+  const [showPrefs, setShowPrefs] = useState(true);
+
+  const fileRef = useRef();
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) setFridge(JSON.parse(stored));
+      const count = parseInt(localStorage.getItem(SUGGEST_COUNT_KEY) || "0", 10);
+      setSuggestCount(count);
+    } catch {}
+  }, []);
+
+  function saveFridge(items) {
+    setFridge(items);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch {}
+  }
+
+  function incrementSuggestCount() {
+    const next = suggestCount + 1;
+    setSuggestCount(next);
+    try { localStorage.setItem(SUGGEST_COUNT_KEY, String(next)); } catch {}
+    return next;
+  }
+
+  function showToast(msg, type = "success") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  function removeIngredient(name) {
+    saveFridge(fridge.filter(i => i.name !== name));
+  }
+
+  function adjustQty(name, delta) {
+    const updated = fridge.map(i => {
+      if (i.name !== name) return i;
+      const newQty = Math.max(0, i.quantity + delta);
+      return { ...i, quantity: newQty };
+    }).filter(i => i.quantity > 0);
+    saveFridge(updated);
+  }
+
+  function handleAddIngredient(item) {
+    const updated = [...fridge];
+    const existing = updated.find(i => i.name === item.name);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      updated.push(item);
+    }
+    saveFridge(updated);
+    setShowAddModal(false);
+    showToast(`${item.name}を追加しました！`);
+  }
+
+  async function handleImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImagePreview(URL.createObjectURL(file));
+    setScanResult(null);
+    setScanning(true);
+
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result.split(",")[1]);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+
+      const mediaType = file.type || "image/jpeg";
+      const text = await callClaude(
+        [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+            { type: "text", text: "このレシートまたは食品の画像から食材・食品を抽出してください。JSONのみ返してください。例: [{\"name\":\"鶏もも肉\",\"quantity\":2,\"unit\":\"枚\",\"category\":\"肉\"},{\"name\":\"牛乳\",\"quantity\":1,\"unit\":\"本\",\"category\":\"乳製品\"}]" }
+          ]
+        }],
+        "あなたは食材認識AIです。レシートや食品画像から食材リストをJSONで返します。カテゴリは「野菜」「肉」「魚」「乳製品」「卵」「調味料」「穀物」「果物」「飲み物」「その他」のいずれかにしてください。JSONのみ返し、説明文やMarkdownは一切不要です。"
+      );
+
+      const clean = text.replace(/```json|```/g, "").trim();
+      const items = JSON.parse(clean);
+      setScanResult(items);
+    } catch {
+      showToast("読み取りに失敗しました。別の画像を試してください。", "error");
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function addScannedItems() {
+    if (!scanResult) return;
+    const updated = [...fridge];
+    for (const item of scanResult) {
+      const existing = updated.find(i => i.name === item.name);
+      if (existing) {
+        existing.quantity += item.quantity;
+      } else {
+        updated.push(item);
+      }
+    }
+    saveFridge(updated);
+    setScanResult(null);
+    setImagePreview(null);
+    setTab("fridge");
+    showToast(`${scanResult.length}品を冷蔵庫に追加しました！`);
+  }
+
+  async function getSuggestion() {
+    if (fridge.length === 0) {
+      showToast("先に食材を登録してください", "error");
+      return;
+    }
+
+    const nextCount = incrementSuggestCount();
+    if (nextCount > FREE_LIMIT) {
+      setShowLoginModal(true);
+      setSuggestCount(prev => prev); // no re-increment
+      return;
+    }
+
+    setSuggesting(true);
+    setSuggestion(null);
+    setShowPrefs(false);
+
+    const fridgeText = fridge.map(i => `${i.name} ${i.quantity}${i.unit}`).join("、");
+    const effortLabel = EFFORT_OPTIONS.find(e => e.value === effort)?.label;
+    const effortDesc = EFFORT_OPTIONS.find(e => e.value === effort)?.desc;
+
+    try {
+      const text = await callClaude(
+        [{
+          role: "user",
+          content: `冷蔵庫の中身: ${fridgeText}
+
+条件:
+- 人数: ${servings}人分
+- 手間: ${effortLabel}（${effortDesc}）
+- ジャンル: ${mealType}
+
+上記の条件に合った料理を1品提案してください。JSONのみ返してください。`
+        }],
+        `あなたは料理提案AIです。冷蔵庫の食材と指定された条件から料理を提案します。
+必ずJSONのみ返してください。形式:
+{
+  "name": "料理名",
+  "description": "一言説明",
+  "cookTime": "調理時間",
+  "servings": ${servings},
+  "steps": ["手順1（${servings}人分の量で）", "手順2", "手順3"],
+  "usedIngredients": [{"name": "食材名", "quantity": 数量, "unit": "単位"}],
+  "comment": "シェフからひとこと（手間や人数に触れてもOK）"
+}
+・手順の量はすべて${servings}人分で記述してください
+・手間レベル「${effortLabel}」に合った料理にしてください
+JSONのみ返し、説明文やMarkdownは不要です。`
+      );
+
+      const clean = text.replace(/```json|```/g, "").trim();
+      setSuggestion(JSON.parse(clean));
+    } catch {
+      showToast("提案の取得に失敗しました", "error");
+      setShowPrefs(true);
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
+  function consumeIngredients() {
+    if (!suggestion) return;
+    let updated = [...fridge];
+    for (const used of suggestion.usedIngredients) {
+      updated = updated.map(i => {
+        if (i.name !== used.name) return i;
+        return { ...i, quantity: Math.max(0, i.quantity - used.quantity) };
+      }).filter(i => i.quantity > 0);
+    }
+    saveFridge(updated);
+    setSuggestion(null);
+    setShowPrefs(true);
+    setTab("fridge");
+    showToast("使った食材を冷蔵庫から消費しました🍳");
+  }
+
+  function resetSuggest() {
+    setSuggestion(null);
+    setShowPrefs(true);
+  }
+
+  const grouped = fridge.reduce((acc, item) => {
+    const cat = item.category || "その他";
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+    return acc;
+  }, {});
+
+  const remainingFree = Math.max(0, FREE_LIMIT - suggestCount);
+
+  return (
+    <div style={{ fontFamily: "'Hiragino Sans', 'Yu Gothic UI', sans-serif", background: "#FAFAF7", minHeight: "100vh", maxWidth: 480, margin: "0 auto", position: "relative" }}>
+      {toast && (
+        <div style={{
+          position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
+          background: toast.type === "error" ? "#FF6B6B" : "#4CAF82",
+          color: "#fff", padding: "10px 20px", borderRadius: 24, fontSize: 14,
+          zIndex: 1000, fontWeight: 600, boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+          whiteSpace: "nowrap"
+        }}>
+          {toast.msg}
+        </div>
+      )}
+
+      {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+      {showAddModal && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setShowAddModal(false)} />}
+
+      {/* Header */}
+      <div style={{ background: "#fff", borderBottom: "1px solid #F0EDE8", padding: "20px 20px 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <span style={{ fontSize: 28 }}>🧊</span>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#1A1A1A", letterSpacing: "-0.5px" }}>うちの冷蔵庫</div>
+            <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>{fridge.length}品 在庫中</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 0 }}>
+          {[["fridge", "🧊 冷蔵庫"], ["scan", "📷 スキャン"], ["suggest", "✨ 提案"]].map(([key, label]) => (
+            <button key={key} onClick={() => { setTab(key); if (key === "suggest") { setSuggestion(null); setShowPrefs(true); } }} style={{
+              flex: 1, padding: "10px 0", border: "none", background: "none",
+              fontSize: 13, fontWeight: tab === key ? 700 : 500,
+              color: tab === key ? "#2E7D5A" : "#999",
+              borderBottom: tab === key ? "2.5px solid #2E7D5A" : "2.5px solid transparent",
+              cursor: "pointer", transition: "all 0.2s"
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{ padding: 16, paddingBottom: 100 }}>
+
+        {/* FRIDGE TAB */}
+        {tab === "fridge" && (
+          <>
+            {fridge.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "60px 20px", color: "#BBB" }}>
+                <div style={{ fontSize: 60, marginBottom: 12 }}>🧊</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "#CCC" }}>冷蔵庫が空です</div>
+                <div style={{ fontSize: 13, marginTop: 8 }}>レシートをスキャンして食材を登録しよう</div>
+              </div>
+            ) : (
+              Object.entries(grouped).map(([cat, items]) => (
+                <div key={cat} style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>{getCategoryEmoji(cat)}</span> {cat.toUpperCase()}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {items.map(item => (
+                      <div key={item.name} style={{
+                        background: "#fff", borderRadius: 14, padding: "12px 16px",
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
+                      }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 15, color: "#1A1A1A" }}>{item.name}</div>
+                          <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{item.quantity}{item.unit}</div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <button onClick={() => adjustQty(item.name, -1)} style={btnStyle("#F5F5F5", "#666")}>−</button>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: "#333", minWidth: 20, textAlign: "center" }}>{item.quantity}</span>
+                          <button onClick={() => adjustQty(item.name, 1)} style={btnStyle("#E8F5EE", "#2E7D5A")}>＋</button>
+                          <button onClick={() => removeIngredient(item.name)} style={btnStyle("#FFF0F0", "#FF6B6B")}>✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+
+            {/* 手動追加ボタン */}
+            <button onClick={() => setShowAddModal(true)} style={{
+              width: "100%", padding: "14px", border: "1.5px dashed #D4EBE0", borderRadius: 14,
+              background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 14,
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              marginBottom: 16,
+            }}>
+              ＋ 食材を手動で追加
+            </button>
+
+            <AdPlaceholder label="広告" />
+          </>
+        )}
+
+        {/* SCAN TAB */}
+        {tab === "scan" && (
+          <div>
+            <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1A1A", marginBottom: 4 }}>レシートをスキャン</div>
+              <div style={{ fontSize: 13, color: "#999", marginBottom: 16 }}>レシートや食材の写真を撮ると、自動で冷蔵庫に追加します</div>
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleImageUpload} style={{ display: "none" }} />
+              <button onClick={() => fileRef.current?.click()} style={{
+                width: "100%", padding: "16px", border: "2px dashed #D4EBE0", borderRadius: 12,
+                background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 15,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+              }}>
+                <span style={{ fontSize: 24 }}>📷</span> 写真を選択 / 撮影
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 8 }}>
+              <button onClick={() => setShowAddModal(true)} style={{
+                width: "100%", padding: "14px", border: "1.5px dashed #D4EBE0", borderRadius: 14,
+                background: "#F7FBF9", color: "#2E7D5A", fontWeight: 700, fontSize: 14,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                marginBottom: 16,
+              }}>
+                ✏️ 手動で食材を入力する
+              </button>
+            </div>
+
+            {imagePreview && (
+              <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+                <img src={imagePreview} alt="preview" style={{ width: "100%", maxHeight: 220, objectFit: "cover" }} />
+                {scanning && (
+                  <div style={{ padding: 20, textAlign: "center" }}>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+                    <div style={{ color: "#2E7D5A", fontWeight: 600 }}>食材を読み取り中...</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {scanResult && (
+              <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, color: "#1A1A1A" }}>
+                  🎉 {scanResult.length}品を検出しました
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                  {scanResult.map((item, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#F7FBF9", borderRadius: 10 }}>
+                      <span style={{ fontWeight: 600, fontSize: 14 }}>{getCategoryEmoji(item.category)} {item.name}</span>
+                      <span style={{ color: "#2E7D5A", fontWeight: 700, fontSize: 14 }}>{item.quantity}{item.unit}</span>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={addScannedItems} style={primaryBtn}>冷蔵庫に追加する</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SUGGEST TAB */}
+        {tab === "suggest" && (
+          <div>
+            {/* 残り回数バナー */}
+            {remainingFree > 0 && !suggestion && !suggesting && (
+              <div style={{
+                background: "#FFF9F0", border: "1px solid #FFE0A0", borderRadius: 12,
+                padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#886600",
+                display: "flex", alignItems: "center", gap: 8,
+              }}>
+                <span>⚡</span>
+                <span>無料で使えるあと <strong>{remainingFree}回</strong> ／ 以降はログインが必要です</span>
+              </div>
+            )}
+
+            {showPrefs && !suggesting && (
+              <div>
+                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10, letterSpacing: 0.5 }}>👥 何人分？</div>
+                  <ChoiceChip options={SERVING_OPTIONS} value={servings} onChange={setServings} />
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10, letterSpacing: 0.5 }}>⏱ どのくらい手間をかける？</div>
+                  <ChoiceChip options={EFFORT_OPTIONS} value={effort} onChange={setEffort} />
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 10, letterSpacing: 0.5 }}>🍱 食べたいジャンル</div>
+                  <ChoiceChip options={MEAL_OPTIONS} value={mealType} onChange={setMealType} />
+                </div>
+
+                <button onClick={getSuggestion} style={primaryBtn}>この条件で提案してもらう ✨</button>
+              </div>
+            )}
+
+            {suggesting && (
+              <div style={{ textAlign: "center", padding: "60px 20px" }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>🍳</div>
+                <div style={{ color: "#2E7D5A", fontWeight: 700, fontSize: 15 }}>メニューを考えています...</div>
+                <div style={{ color: "#AAA", fontSize: 13, marginTop: 8 }}>
+                  {servings}人分・{EFFORT_OPTIONS.find(e => e.value === effort)?.label}・{mealType}
+                </div>
+              </div>
+            )}
+
+            {suggestion && (
+              <div>
+                <div style={{ background: "linear-gradient(135deg, #2E7D5A, #45A876)", borderRadius: 20, padding: 24, color: "#fff", marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.8, marginBottom: 6, letterSpacing: 1 }}>TODAY'S MENU</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, marginBottom: 4 }}>{suggestion.name}</div>
+                  <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 14 }}>{suggestion.description}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
+                      ⏱ {suggestion.cookTime}
+                    </span>
+                    <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
+                      👥 {servings}人分
+                    </span>
+                    <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
+                      {EFFORT_OPTIONS.find(e => e.value === effort)?.emoji} {EFFORT_OPTIONS.find(e => e.value === effort)?.label}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 12, letterSpacing: 0.5 }}>使う食材</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {suggestion.usedIngredients?.map((ing, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                        <span style={{ color: "#333" }}>• {ing.name}</span>
+                        <span style={{ color: "#FF6B6B", fontWeight: 600 }}>−{ing.quantity}{ing.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#999", marginBottom: 12, letterSpacing: 0.5 }}>作り方</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {suggestion.steps?.map((step, i) => (
+                      <div key={i} style={{ display: "flex", gap: 10 }}>
+                        <span style={{ background: "#E8F5EE", color: "#2E7D5A", fontWeight: 700, fontSize: 12, width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{i + 1}</span>
+                        <span style={{ fontSize: 14, color: "#333", lineHeight: 1.6 }}>{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {suggestion.comment && (
+                  <div style={{ background: "#FFF9F0", borderRadius: 16, padding: 16, marginBottom: 16, borderLeft: "3px solid #FFB347" }}>
+                    <div style={{ fontSize: 12, color: "#CC8800", fontWeight: 700, marginBottom: 4 }}>👨‍🍳 シェフより</div>
+                    <div style={{ fontSize: 13, color: "#886600", lineHeight: 1.6 }}>{suggestion.comment}</div>
+                  </div>
+                )}
+
+                <AdPlaceholder label="広告" />
+
+                <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                  <button onClick={resetSuggest} style={{ ...secondaryBtn, flex: 1 }}>条件を変える</button>
+                  <button onClick={() => { setSuggestion(null); getSuggestion(); }} style={{ ...secondaryBtn, flex: 1 }}>別の料理</button>
+                </div>
+                <button onClick={consumeIngredients} style={primaryBtn}>これを作る！🍳</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
+}
+
+const btnStyle = (bg, color) => ({
+  width: 32, height: 32, border: "none", borderRadius: 8,
+  background: bg, color: color, fontWeight: 700, fontSize: 16,
+  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
+});
+
+const primaryBtn = {
+  width: "100%", padding: "15px", border: "none", borderRadius: 14,
+  background: "linear-gradient(135deg, #2E7D5A, #45A876)", color: "#fff",
+  fontWeight: 800, fontSize: 15, cursor: "pointer", letterSpacing: "-0.3px"
+};
+
+const secondaryBtn = {
+  padding: "15px", border: "1.5px solid #D4EBE0", borderRadius: 14,
+  background: "#fff", color: "#2E7D5A",
+  fontWeight: 700, fontSize: 15, cursor: "pointer"
+};
