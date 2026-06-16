@@ -17,15 +17,10 @@ function getCategoryEmoji(category) {
 }
 
 async function callClaude(messages, systemPrompt) {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1200,
-      system: systemPrompt,
-      messages,
-    }),
+    body: JSON.stringify({ messages, systemPrompt }),
   });
   const data = await response.json();
   return data.content.map(b => b.text || "").join("");
