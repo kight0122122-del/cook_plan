@@ -26,6 +26,7 @@ const SUGGEST_COUNT_KEY = "fridge-suggest-count";
 const HISTORY_KEY = "fridge-history";
 const SEASONING_KEY = "fridge-seasonings";
 const SETTINGS_KEY = "fridge-settings";
+const SHOPPING_KEY = "fridge-shopping";
 const FREE_LIMIT = Infinity;
 
 const DEFAULT_SETTINGS = { servings: 2, effort: "normal", mealType: "なんでも" };
@@ -414,6 +415,7 @@ export default function FridgeApp() {
   const [suggesting, setSuggesting] = useState(false);
   const [suggestion, setSuggestion] = useState(null);
   const [scanResult, setScanResult] = useState(null);
+  const [editScanResult, setEditScanResult] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [toast, setToast] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -429,6 +431,8 @@ export default function FridgeApp() {
   const [seasonings, setSeasonings] = useState({});
   const [customSeasoningInput, setCustomSeasoningInput] = useState("");
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [shoppingList, setShoppingList] = useState([]);
+  const [shoppingInput, setShoppingInput] = useState("");
 
   const fileRef = useRef();
 
@@ -450,12 +454,16 @@ export default function FridgeApp() {
         setEffort(s.effort);
         setMealType(s.mealType);
       }
+      const shop = localStorage.getItem(SHOPPING_KEY);
+      if (shop) setShoppingList(JSON.parse(shop));
     } catch {}
   }, []);
 
   function saveFridge(items) {
     setFridge(items);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch (e) {
+      if (e.name === 'QuotaExceededError') showToast('ストレージがいっぱいです。履歴を削除してください', 'error');
+    }
   }
 
   function saveSettings(next) {
@@ -463,19 +471,37 @@ export default function FridgeApp() {
     setServings(next.servings);
     setEffort(next.effort);
     setMealType(next.mealType);
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch {}
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch (e) {
+      if (e.name === 'QuotaExceededError') showToast('ストレージがいっぱいです。履歴を削除してください', 'error');
+    }
   }
 
   function incrementSuggestCount() {
     const next = suggestCount + 1;
     setSuggestCount(next);
-    try { localStorage.setItem(SUGGEST_COUNT_KEY, String(next)); } catch {}
+    try { localStorage.setItem(SUGGEST_COUNT_KEY, String(next)); } catch (e) {
+      if (e.name === 'QuotaExceededError') console.warn('ストレージがいっぱいです');
+    }
     return next;
   }
 
   function saveSeasonings(next) {
     setSeasonings(next);
-    try { localStorage.setItem(SEASONING_KEY, JSON.stringify(next)); } catch {}
+    try { localStorage.setItem(SEASONING_KEY, JSON.stringify(next)); } catch (e) {
+      if (e.name === 'QuotaExceededError') showToast('ストレージがいっぱいです。履歴を削除してください', 'error');
+    }
+  }
+
+  function saveShoppingList(items) {
+    setShoppingList(items);
+    try { localStorage.setItem(SHOPPING_KEY, JSON.stringify(items)); } catch (e) {
+      if (e.name === 'QuotaExceededError') showToast('ストレージがいっぱいです', 'error');
+    }
+  }
+
+  function addToShoppingList(name) {
+    if (!name.trim() || shoppingList.find(i => i.name === name.trim())) return;
+    saveShoppingList([...shoppingList, { id: Date.now(), name: name.trim(), checked: false }]);
   }
 
   function toggleSeasoning(name) {
@@ -575,6 +601,7 @@ export default function FridgeApp() {
       const today = new Date().toISOString().split("T")[0];
       const items = JSON.parse(clean).map(i => ({ ...i, addedAt: today, expiryDate: calcExpiryDate(i.category, false, i.name), urgent: false }));
       setScanResult(items);
+      setEditScanResult(items);
     } catch {
       showToast("読み取りに失敗しました。別の画像を試してください。", "error");
     } finally {
@@ -583,15 +610,15 @@ export default function FridgeApp() {
   }
 
   async function addScannedItems() {
-    if (!scanResult) return;
+    if (!editScanResult) return;
     setScanning(true);
 
-    let normalizedItems = scanResult;
+    let normalizedItems = editScanResult;
 
     if (fridge.length > 0) {
       try {
         const fridgeNames = fridge.map(i => i.name).join("、");
-        const scanNames = scanResult.map(i => i.name).join("、");
+        const scanNames = editScanResult.map(i => i.name).join("、");
         const text = await callClaude(
           [{ role: "user", content: `冷蔵庫にある食材: ${fridgeNames}\nスキャンした食材: ${scanNames}\n\n表記ゆれを考慮して、スキャンした各食材が冷蔵庫のどの食材と同じか判定してください。JSONのみ返してください。` }],
           `あなたは食材名の正規化AIです。「茨城のおいしいたまねぎ」→「たまねぎ」のように、スキャンした食材名を冷蔵庫の既存食材名に合わせて正規化します。
@@ -600,7 +627,7 @@ export default function FridgeApp() {
         );
         const clean = text.replace(/```json|```/g, "").trim();
         const mapping = JSON.parse(clean);
-        normalizedItems = scanResult.map(item => {
+        normalizedItems = editScanResult.map(item => {
           const match = mapping.find(m => m.scanned === item.name);
           return match ? { ...item, name: match.normalized } : item;
         });
@@ -609,6 +636,7 @@ export default function FridgeApp() {
       }
     }
 
+    const addedCount = editScanResult.length;
     const updated = [...fridge];
     for (const item of normalizedItems) {
       const existing = updated.find(i => i.name === item.name);
@@ -620,10 +648,11 @@ export default function FridgeApp() {
     }
     saveFridge(updated);
     setScanResult(null);
+    setEditScanResult(null);
     setImagePreview(null);
     setScanning(false);
     setTab("fridge");
-    showToast(`${scanResult.length}品を冷蔵庫に追加しました！`);
+    showToast(`${addedCount}品を冷蔵庫に追加しました！`);
   }
 
   async function getSuggestion() {
@@ -694,6 +723,7 @@ export default function FridgeApp() {
 ・利用可能な調味料の範囲内でレシピを提案してください
 ・【優先：早く使いたい】【期限切れ】【期限まで○日】【登録から○日経過】の食材は最優先で使ってください
 ・usedIngredientsの単位は必ず冷蔵庫に登録されている単位と同じにしてください（例：冷蔵庫が「g」なら「g」、「枚」なら「枚」）
+・usedIngredientsの食材名は、冷蔵庫に登録されている食材名と完全に一致させること（例：冷蔵庫に「味噌」とあれば「白味噌」ではなく「味噌」と返す）
 JSONのみ返し、説明文やMarkdownは不要です。`
       );
 
@@ -735,7 +765,9 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     };
     const newHistory = [record, ...history].slice(0, 50);
     setHistory(newHistory);
-    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory)); } catch {}
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory)); } catch (e) {
+      if (e.name === 'QuotaExceededError') showToast('ストレージがいっぱいです。履歴を削除してください', 'error');
+    }
 
     setSuggestion(null);
     setShowPrefs(true);
@@ -757,7 +789,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
 
   const remainingFree = Math.max(0, FREE_LIMIT - suggestCount);
 
-  const tabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["condiments", "🧂", "調味料"], ["history", "📖", "履歴"], ["settings", "⚙️", "設定"]];
+  const tabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["condiments", "🧂", "調味料"], ["history", "📖", "履歴"], ["shopping", "🛒", "買い物"], ["settings", "⚙️", "設定"]];
 
   function switchTab(key) {
     setTab(key);
@@ -865,10 +897,24 @@ JSONのみ返し、説明文やMarkdownは不要です。`
             🎉 {scanResult.length}品を検出しました
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-            {scanResult.map((item, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#F7FBF9", borderRadius: 10 }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{getCategoryEmoji(item.category)} {item.name}</span>
-                <span style={{ color: "#2E7D5A", fontWeight: 700, fontSize: 14 }}>{item.quantity}{item.unit}</span>
+            {(editScanResult || []).map((item, i) => (
+              <div key={i} style={{ background: "#F7FBF9", borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{getCategoryEmoji(item.category)} {item.name}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <input type="number" value={item.quantity} min="0.1" step="0.1"
+                    onChange={e => setEditScanResult(prev => prev.map((it, idx) => idx === i ? {...it, quantity: parseFloat(e.target.value) || it.quantity} : it))}
+                    style={{ width: 70, padding: "4px 8px", borderRadius: 6, border: "1px solid #E8E8E8", fontSize: 13 }} />
+                  <select value={item.unit}
+                    onChange={e => setEditScanResult(prev => prev.map((it, idx) => idx === i ? {...it, unit: e.target.value} : it))}
+                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #E8E8E8", fontSize: 13 }}>
+                    {UNITS.map(u => <option key={u}>{u}</option>)}
+                  </select>
+                  <select value={item.category}
+                    onChange={e => setEditScanResult(prev => prev.map((it, idx) => idx === i ? {...it, category: e.target.value} : it))}
+                    style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #E8E8E8", fontSize: 13 }}>
+                    {CATEGORIES.map(c => <option key={c} value={c}>{getCategoryEmoji(c)} {c}</option>)}
+                  </select>
+                </div>
               </div>
             ))}
           </div>
@@ -1051,7 +1097,18 @@ JSONのみ返し、説明文やMarkdownは不要です。`
                     {isExpanded ? "閉じる" : "レシピを見る"}
                   </button>
                   <button
-                    onClick={() => { setSuggestion({ ...rec, usedIngredients: rec.usedIngredients }); setShowPrefs(false); switchTab("suggest"); }}
+                    onClick={() => {
+                      const missing = (rec.usedIngredients || []).filter(used => {
+                        const found = fridge.find(i => i.name === used.name || i.name.includes(used.name) || used.name.includes(i.name));
+                        return !found || found.quantity < used.quantity;
+                      });
+                      if (missing.length > 0) {
+                        showToast(`⚠️ ${missing.map(m => m.name).join('・')}が不足しています`, 'error');
+                      }
+                      setSuggestion({ ...rec, usedIngredients: rec.usedIngredients });
+                      setShowPrefs(false);
+                      switchTab("suggest");
+                    }}
                     style={{ ...secondaryBtn, flex: 1, padding: "10px", fontSize: 13, color: "#2E7D5A", borderColor: "#2E7D5A" }}
                   >
                     🍳 また作る
@@ -1107,6 +1164,74 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     </div>
   );
 
+  const shoppingContent = (
+    <div style={{ maxWidth: isMobile ? "100%" : 560, margin: "0 auto" }}>
+      {/* 在庫切れから追加 */}
+      {fridge.filter(i => i.quantity === 0).length > 0 && (
+        <div style={{ background: "#FFF9F0", border: "1px solid #FFE0A0", borderRadius: 12, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "#886600" }}>在庫切れが{fridge.filter(i => i.quantity === 0).length}品あります</span>
+          <button
+            onClick={() => fridge.filter(i => i.quantity === 0).forEach(i => addToShoppingList(i.name))}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#FF8C00", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+          >リストに追加</button>
+        </div>
+      )}
+
+      {/* 手動入力 */}
+      <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            style={{ flex: 1, padding: "10px 12px", border: "1.5px solid #E8E8E8", borderRadius: 10, fontSize: 14, outline: "none" }}
+            value={shoppingInput}
+            onChange={e => setShoppingInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addToShoppingList(shoppingInput); setShoppingInput(""); } }}
+            placeholder="買う食材を入力..."
+          />
+          <button
+            onClick={() => { addToShoppingList(shoppingInput); setShoppingInput(""); }}
+            disabled={!shoppingInput.trim()}
+            style={{ padding: "10px 18px", border: "none", borderRadius: 10, background: shoppingInput.trim() ? "#2E7D5A" : "#E8E8E8", color: shoppingInput.trim() ? "#fff" : "#BBB", fontWeight: 700, fontSize: 14, cursor: shoppingInput.trim() ? "pointer" : "default" }}
+          >追加</button>
+        </div>
+      </div>
+
+      {/* リスト表示 */}
+      {shoppingList.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: "#CCC" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🛒</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>買い物リストが空です</div>
+        </div>
+      ) : (
+        <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#999" }}>{shoppingList.filter(i => !i.checked).length}品 残り</div>
+            {shoppingList.some(i => i.checked) && (
+              <button
+                onClick={() => saveShoppingList(shoppingList.filter(i => !i.checked))}
+                style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "#F0F0F0", color: "#666", fontSize: 12, cursor: "pointer" }}
+              >買い済みを削除</button>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {shoppingList.map(item => (
+              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #F5F5F5" }}>
+                <button
+                  onClick={() => saveShoppingList(shoppingList.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i))}
+                  style={{ width: 24, height: 24, borderRadius: 6, border: `2px solid ${item.checked ? "#2E7D5A" : "#DDD"}`, background: item.checked ? "#2E7D5A" : "#fff", color: "#fff", fontSize: 14, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+                >{item.checked ? "✓" : ""}</button>
+                <span style={{ flex: 1, fontSize: 15, color: item.checked ? "#BBB" : "#1A1A1A", textDecoration: item.checked ? "line-through" : "none" }}>{item.name}</span>
+                <button
+                  onClick={() => saveShoppingList(shoppingList.filter(i => i.id !== item.id))}
+                  style={{ width: 28, height: 28, border: "none", borderRadius: 6, background: "#FFF0F0", color: "#FF6B6B", fontSize: 14, cursor: "pointer" }}
+                >✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   const contentMap = {
     fridge: fridgeContent,
     scan: scanContent,
@@ -1123,6 +1248,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       />
     ),
     history: historyContent,
+    shopping: shoppingContent,
     settings: settingsContent,
   };
 
@@ -1133,6 +1259,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
         {toast && <Toast toast={toast} />}
         {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
         {showAddModal && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setShowAddModal(false)} />}
+        {editingItem && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setEditingItem(null)} initial={editingItem} />}
         <div style={{ background: "#fff", borderBottom: "1px solid #F0EDE8", padding: "20px 20px 0" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
             <span style={{ fontSize: 28 }}>🗄️</span>
@@ -1222,7 +1349,7 @@ function Toast({ toast }) {
 }
 
 const btnStyle = (bg, color) => ({
-  width: 32, height: 32, border: "none", borderRadius: 8,
+  width: 44, height: 44, border: "none", borderRadius: 10,
   background: bg, color: color, fontWeight: 700, fontSize: 16,
   cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
 });
