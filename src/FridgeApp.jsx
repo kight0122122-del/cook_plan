@@ -92,17 +92,8 @@ function ChoiceChip({ options, value, onChange }) {
   );
 }
 
-function AdPlaceholder({ label = "広告" }) {
-  return (
-    <div style={{
-      background: "#F0F0F0", border: "1px dashed #CCC", borderRadius: 12,
-      padding: "18px 16px", textAlign: "center", color: "#AAA",
-      fontSize: 12, fontWeight: 600, letterSpacing: 0.5, marginBottom: 16,
-    }}>
-      <div style={{ fontSize: 18, marginBottom: 4 }}>📢</div>
-      {label} (Google AdSense)
-    </div>
-  );
+function AdPlaceholder() {
+  return null;
 }
 
 function LoginModal({ onClose }) {
@@ -613,7 +604,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
 
   const remainingFree = Math.max(0, FREE_LIMIT - suggestCount);
 
-  const tabs = [["fridge", "🧊", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["history", "📖", "履歴"]];
+  const tabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["history", "📖", "履歴"]];
 
   function switchTab(key) {
     setTab(key);
@@ -625,7 +616,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     <>
       {fridge.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 20px", color: "#BBB" }}>
-          <div style={{ fontSize: 60, marginBottom: 12 }}>🧊</div>
+          <div style={{ fontSize: 60, marginBottom: 12 }}>🗄️</div>
           <div style={{ fontSize: 16, fontWeight: 600, color: "#CCC" }}>冷蔵庫が空です</div>
           <div style={{ fontSize: 13, marginTop: 8 }}>レシートをスキャンして食材を登録しよう</div>
         </div>
@@ -869,7 +860,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
         {showAddModal && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setShowAddModal(false)} />}
         <div style={{ background: "#fff", borderBottom: "1px solid #F0EDE8", padding: "20px 20px 0" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-            <span style={{ fontSize: 28 }}>🧊</span>
+            <span style={{ fontSize: 28 }}>🗄️</span>
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: "#1A1A1A" }}>うちの冷蔵庫</div>
               <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>{fridge.length}品 在庫中</div>
@@ -910,7 +901,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
         position: "sticky", top: 0, height: "100vh",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 32 }}>
-          <span style={{ fontSize: 32 }}>🧊</span>
+          <span style={{ fontSize: 32 }}>🗄️</span>
           <div>
             <div style={{ fontSize: 17, fontWeight: 900, color: "#1A1A1A" }}>うちの冷蔵庫</div>
             <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>{fridge.length}品 在庫中</div>
