@@ -433,6 +433,7 @@ export default function FridgeApp() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [shoppingList, setShoppingList] = useState([]);
   const [shoppingInput, setShoppingInput] = useState("");
+  const [undoSnapshot, setUndoSnapshot] = useState(null);
 
   const fileRef = useRef();
 
@@ -739,6 +740,8 @@ JSONのみ返し、説明文やMarkdownは不要です。`
 
   function consumeIngredients() {
     if (!suggestion) return;
+    const prevFridge = [...fridge];
+
     let updated = [...fridge];
     for (const used of suggestion.usedIngredients) {
       updated = updated.map(i => {
@@ -769,10 +772,21 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       if (e.name === 'QuotaExceededError') showToast('ストレージがいっぱいです。履歴を削除してください', 'error');
     }
 
+    setUndoSnapshot({ fridge: prevFridge, recordId: record.id, recipeName: record.name });
     setSuggestion(null);
     setShowPrefs(true);
     setTab("fridge");
-    showToast("使った食材を冷蔵庫から消費しました🍳");
+    showToast(`${record.name}を作りました🍳`);
+  }
+
+  function undoConsume() {
+    if (!undoSnapshot) return;
+    saveFridge(undoSnapshot.fridge);
+    const restored = history.filter(r => r.id !== undoSnapshot.recordId);
+    setHistory(restored);
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(restored)); } catch {}
+    setUndoSnapshot(null);
+    showToast("消費を取り消しました");
   }
 
   function resetSuggest() {
@@ -799,6 +813,27 @@ JSONのみ返し、説明文やMarkdownは不要です。`
   /* ---- 共通コンテンツブロック ---- */
   const fridgeContent = (
     <>
+      {undoSnapshot && (
+        <div style={{
+          background: "#1A1A1A", borderRadius: 14, padding: "14px 18px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          marginBottom: 16, gap: 12,
+        }}>
+          <div style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>
+            「{undoSnapshot.recipeName}」の食材消費を取り消しますか？
+          </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button
+              onClick={undoConsume}
+              style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#fff", color: "#1A1A1A", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+            >↩️ 取り消す</button>
+            <button
+              onClick={() => setUndoSnapshot(null)}
+              style={{ padding: "7px 12px", borderRadius: 8, border: "none", background: "rgba(255,255,255,0.15)", color: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}
+            >✕</button>
+          </div>
+        </div>
+      )}
       {fridge.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 20px", color: "#BBB" }}>
           <div style={{ fontSize: 60, marginBottom: 12 }}>🗄️</div>
