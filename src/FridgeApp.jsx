@@ -353,10 +353,35 @@ export default function FridgeApp() {
     }
   }
 
-  function addScannedItems() {
+  async function addScannedItems() {
     if (!scanResult) return;
+    setScanning(true);
+
+    let normalizedItems = scanResult;
+
+    if (fridge.length > 0) {
+      try {
+        const fridgeNames = fridge.map(i => i.name).join("、");
+        const scanNames = scanResult.map(i => i.name).join("、");
+        const text = await callClaude(
+          [{ role: "user", content: `冷蔵庫にある食材: ${fridgeNames}\nスキャンした食材: ${scanNames}\n\n表記ゆれを考慮して、スキャンした各食材が冷蔵庫のどの食材と同じか判定してください。JSONのみ返してください。` }],
+          `あなたは食材名の正規化AIです。「茨城のおいしいたまねぎ」→「たまねぎ」のように、スキャンした食材名を冷蔵庫の既存食材名に合わせて正規化します。
+一致するものがない場合はスキャン時の名前をそのまま使います。
+必ずJSONのみ返してください。形式: [{"scanned": "スキャン時の名前", "normalized": "正規化後の名前"}]`
+        );
+        const clean = text.replace(/```json|```/g, "").trim();
+        const mapping = JSON.parse(clean);
+        normalizedItems = scanResult.map(item => {
+          const match = mapping.find(m => m.scanned === item.name);
+          return match ? { ...item, name: match.normalized } : item;
+        });
+      } catch {
+        // 失敗時はそのまま追加
+      }
+    }
+
     const updated = [...fridge];
-    for (const item of scanResult) {
+    for (const item of normalizedItems) {
       const existing = updated.find(i => i.name === item.name);
       if (existing) {
         existing.quantity += item.quantity;
@@ -367,6 +392,7 @@ export default function FridgeApp() {
     saveFridge(updated);
     setScanResult(null);
     setImagePreview(null);
+    setScanning(false);
     setTab("fridge");
     showToast(`${scanResult.length}品を冷蔵庫に追加しました！`);
   }
