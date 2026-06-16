@@ -3,7 +3,16 @@ import { useState, useEffect, useRef } from "react";
 const STORAGE_KEY = "fridge-ingredients";
 const SUGGEST_COUNT_KEY = "fridge-suggest-count";
 const HISTORY_KEY = "fridge-history";
+const SEASONING_KEY = "fridge-seasonings";
 const FREE_LIMIT = Infinity;
+
+const PRESET_SEASONINGS = [
+  { group: "基本", items: ["塩", "砂糖", "醤油", "みりん", "酒", "酢", "味噌"] },
+  { group: "油", items: ["サラダ油", "ごま油", "オリーブオイル", "バター"] },
+  { group: "だし・スープ", items: ["だしの素", "コンソメ", "鶏がらスープの素", "白だし"] },
+  { group: "ソース・タレ", items: ["ウスターソース", "ケチャップ", "マヨネーズ", "ポン酢", "めんつゆ", "オイスターソース"] },
+  { group: "スパイス", items: ["胡椒", "七味唐辛子", "にんにく（チューブ）", "生姜（チューブ）", "ごま"] },
+];
 
 const categoryEmoji = {
   野菜: "🥬", 肉: "🥩", 魚: "🐟", 乳製品: "🧀", 卵: "🥚",
@@ -329,6 +338,8 @@ export default function FridgeApp() {
   const [effort, setEffort] = useState("normal");
   const [mealType, setMealType] = useState("なんでも");
   const [showPrefs, setShowPrefs] = useState(true);
+  const [seasonings, setSeasonings] = useState({});
+  const [customSeasoningInput, setCustomSeasoningInput] = useState("");
 
   const fileRef = useRef();
 
@@ -340,6 +351,8 @@ export default function FridgeApp() {
       setSuggestCount(count);
       const hist = localStorage.getItem(HISTORY_KEY);
       if (hist) setHistory(JSON.parse(hist));
+      const seas = localStorage.getItem(SEASONING_KEY);
+      if (seas) setSeasonings(JSON.parse(seas));
     } catch {}
   }, []);
 
@@ -353,6 +366,28 @@ export default function FridgeApp() {
     setSuggestCount(next);
     try { localStorage.setItem(SUGGEST_COUNT_KEY, String(next)); } catch {}
     return next;
+  }
+
+  function saveSeasonings(next) {
+    setSeasonings(next);
+    try { localStorage.setItem(SEASONING_KEY, JSON.stringify(next)); } catch {}
+  }
+
+  function toggleSeasoning(name) {
+    saveSeasonings({ ...seasonings, [name]: !seasonings[name] });
+  }
+
+  function addCustomSeasoning() {
+    const name = customSeasoningInput.trim();
+    if (!name) return;
+    saveSeasonings({ ...seasonings, [name]: true });
+    setCustomSeasoningInput("");
+  }
+
+  function removeCustomSeasoning(name) {
+    const next = { ...seasonings };
+    delete next[name];
+    saveSeasonings(next);
   }
 
   function showToast(msg, type = "success") {
@@ -520,12 +555,16 @@ export default function FridgeApp() {
     }).join("、");
     const effortLabel = EFFORT_OPTIONS.find(e => e.value === effort)?.label;
     const effortDesc = EFFORT_OPTIONS.find(e => e.value === effort)?.desc;
+    const availableSeasonings = Object.entries(seasonings).filter(([, v]) => v).map(([k]) => k);
+    const seasoningText = availableSeasonings.length > 0 ? availableSeasonings.join("、") : "不明";
 
     try {
       const text = await callClaude(
         [{
           role: "user",
           content: `冷蔵庫の中身: ${fridgeText}
+
+利用可能な調味料: ${seasoningText}
 
 条件:
 - 人数: ${servings}人分
@@ -534,7 +573,7 @@ export default function FridgeApp() {
 
 上記の条件に合った料理を1品提案してください。JSONのみ返してください。`
         }],
-        `あなたは料理提案AIです。冷蔵庫の食材と指定された条件から料理を提案します。
+        `あなたは料理提案AIです。冷蔵庫の食材と指定された調味料・条件から料理を提案します。
 必ずJSONのみ返してください。形式:
 {
   "name": "料理名",
@@ -547,6 +586,7 @@ export default function FridgeApp() {
 }
 ・手順の量はすべて${servings}人分で記述してください
 ・手間レベル「${effortLabel}」に合った料理にしてください
+・利用可能な調味料の範囲内でレシピを提案してください
 ・【優先：早く使いたい】【期限切れ】【期限まで○日】【登録から○日経過】の食材は最優先で使ってください
 JSONのみ返し、説明文やMarkdownは不要です。`
       );
@@ -610,7 +650,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
 
   const remainingFree = Math.max(0, FREE_LIMIT - suggestCount);
 
-  const tabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["history", "📖", "履歴"]];
+  const tabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["condiments", "🧂", "調味料"], ["history", "📖", "履歴"]];
 
   function switchTab(key) {
     setTab(key);
@@ -914,7 +954,107 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     </div>
   );
 
-  const contentMap = { fridge: fridgeContent, scan: scanContent, suggest: suggestContent, history: historyContent };
+  const allPresetNames = PRESET_SEASONINGS.flatMap(g => g.items);
+  const customSeasonings = Object.keys(seasonings).filter(k => !allPresetNames.includes(k));
+  const checkedCount = Object.values(seasonings).filter(Boolean).length;
+
+  const condimentsContent = (
+    <div style={{ maxWidth: isMobile ? "100%" : 640 }}>
+      <div style={{ fontSize: 13, color: "#999", marginBottom: 16 }}>
+        持っている調味料にチェックを入れてください。料理提案でAIが活用します。
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#2E7D5A", marginBottom: 16 }}>
+        ✅ {checkedCount}種類の調味料が登録済み
+      </div>
+      {PRESET_SEASONINGS.map(group => (
+        <div key={group.group} style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>{group.group}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {group.items.map(name => {
+              const checked = !!seasonings[name];
+              return (
+                <button
+                  key={name}
+                  onClick={() => toggleSeasoning(name)}
+                  style={{
+                    padding: "7px 14px", borderRadius: 20, border: `1.5px solid ${checked ? "#2E7D5A" : "#E8E8E8"}`,
+                    background: checked ? "#E8F5EE" : "#F9F9F9",
+                    color: checked ? "#2E7D5A" : "#888",
+                    fontWeight: checked ? 700 : 500, fontSize: 13, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 5,
+                  }}
+                >
+                  <span>{checked ? "✓" : "+"}</span>
+                  <span>{name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {customSeasonings.length > 0 && (
+        <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>カスタム</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {customSeasonings.map(name => {
+              const checked = !!seasonings[name];
+              return (
+                <div key={name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button
+                    onClick={() => toggleSeasoning(name)}
+                    style={{
+                      padding: "7px 14px", borderRadius: 20, border: `1.5px solid ${checked ? "#2E7D5A" : "#E8E8E8"}`,
+                      background: checked ? "#E8F5EE" : "#F9F9F9",
+                      color: checked ? "#2E7D5A" : "#888",
+                      fontWeight: checked ? 700 : 500, fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 5,
+                    }}
+                  >
+                    <span>{checked ? "✓" : "+"}</span>
+                    <span>{name}</span>
+                  </button>
+                  <button
+                    onClick={() => removeCustomSeasoning(name)}
+                    style={{ width: 22, height: 22, border: "none", borderRadius: "50%", background: "#FFE8E8", color: "#FF6B6B", fontSize: 12, cursor: "pointer", fontWeight: 700, padding: 0 }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>リストにない調味料を追加</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            style={{ flex: 1, padding: "10px 12px", border: "1.5px solid #E8E8E8", borderRadius: 10, fontSize: 14, outline: "none" }}
+            value={customSeasoningInput}
+            onChange={e => setCustomSeasoningInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSeasoning(); } }}
+            placeholder="例：ナンプラー、粒マスタード"
+          />
+          <button
+            onClick={addCustomSeasoning}
+            disabled={!customSeasoningInput.trim()}
+            style={{
+              padding: "10px 18px", border: "none", borderRadius: 10,
+              background: customSeasoningInput.trim() ? "#2E7D5A" : "#E8E8E8",
+              color: customSeasoningInput.trim() ? "#fff" : "#BBB",
+              fontWeight: 700, fontSize: 14, cursor: customSeasoningInput.trim() ? "pointer" : "default",
+            }}
+          >
+            追加
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const contentMap = { fridge: fridgeContent, scan: scanContent, suggest: suggestContent, condiments: condimentsContent, history: historyContent };
 
   /* ---- スマホレイアウト ---- */
   if (isMobile) {
