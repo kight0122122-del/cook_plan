@@ -25,7 +25,10 @@ const STORAGE_KEY = "fridge-ingredients";
 const SUGGEST_COUNT_KEY = "fridge-suggest-count";
 const HISTORY_KEY = "fridge-history";
 const SEASONING_KEY = "fridge-seasonings";
+const SETTINGS_KEY = "fridge-settings";
 const FREE_LIMIT = Infinity;
+
+const DEFAULT_SETTINGS = { servings: 2, effort: "normal", mealType: "なんでも" };
 
 const PRESET_SEASONINGS = [
   { group: "基本", items: ["塩", "砂糖", "醤油", "みりん", "酒", "酢", "味噌"] },
@@ -419,12 +422,13 @@ export default function FridgeApp() {
   const [expandedHistory, setExpandedHistory] = useState(null);
   const [suggestCount, setSuggestCount] = useState(0);
 
-  const [servings, setServings] = useState(2);
-  const [effort, setEffort] = useState("normal");
-  const [mealType, setMealType] = useState("なんでも");
+  const [servings, setServings] = useState(DEFAULT_SETTINGS.servings);
+  const [effort, setEffort] = useState(DEFAULT_SETTINGS.effort);
+  const [mealType, setMealType] = useState(DEFAULT_SETTINGS.mealType);
   const [showPrefs, setShowPrefs] = useState(true);
   const [seasonings, setSeasonings] = useState({});
   const [customSeasoningInput, setCustomSeasoningInput] = useState("");
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
   const fileRef = useRef();
 
@@ -438,12 +442,28 @@ export default function FridgeApp() {
       if (hist) setHistory(JSON.parse(hist));
       const seas = localStorage.getItem(SEASONING_KEY);
       if (seas) setSeasonings(JSON.parse(seas));
+      const savedSettings = localStorage.getItem(SETTINGS_KEY);
+      if (savedSettings) {
+        const s = { ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) };
+        setSettings(s);
+        setServings(s.servings);
+        setEffort(s.effort);
+        setMealType(s.mealType);
+      }
     } catch {}
   }, []);
 
   function saveFridge(items) {
     setFridge(items);
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch {}
+  }
+
+  function saveSettings(next) {
+    setSettings(next);
+    setServings(next.servings);
+    setEffort(next.effort);
+    setMealType(next.mealType);
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch {}
   }
 
   function incrementSuggestCount() {
@@ -737,7 +757,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
 
   const remainingFree = Math.max(0, FREE_LIMIT - suggestCount);
 
-  const tabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["condiments", "🧂", "調味料"], ["history", "📖", "履歴"]];
+  const tabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["condiments", "🧂", "調味料"], ["history", "📖", "履歴"], ["settings", "⚙️", "設定"]];
 
   function switchTab(key) {
     setTab(key);
@@ -1045,6 +1065,48 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     </div>
   );
 
+  const settingsContent = (
+    <div style={{ maxWidth: isMobile ? "100%" : 560, margin: "0 auto" }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1A1A", marginBottom: 4 }}>提案の初期設定</div>
+        <div style={{ fontSize: 12, color: "#999", marginBottom: 20 }}>提案タブを開いたときのデフォルト条件です</div>
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", marginBottom: 10 }}>👥 デフォルトの人数</div>
+          <ChoiceChip
+            options={SERVING_OPTIONS}
+            value={settings.servings}
+            onChange={v => saveSettings({ ...settings, servings: v })}
+          />
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", marginBottom: 10 }}>⏱ デフォルトの手間</div>
+          <ChoiceChip
+            options={EFFORT_OPTIONS}
+            value={settings.effort}
+            onChange={v => saveSettings({ ...settings, effort: v })}
+          />
+        </div>
+
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", marginBottom: 10 }}>🍱 デフォルトのジャンル</div>
+          <ChoiceChip
+            options={MEAL_OPTIONS}
+            value={settings.mealType}
+            onChange={v => saveSettings({ ...settings, mealType: v })}
+          />
+        </div>
+      </div>
+
+      <div style={{ background: "#F7FBF9", borderRadius: 12, padding: "12px 16px", fontSize: 12, color: "#666" }}>
+        現在のデフォルト：<strong>{SERVING_OPTIONS.find(o => o.value === settings.servings)?.label}</strong>・
+        <strong>{EFFORT_OPTIONS.find(o => o.value === settings.effort)?.label}</strong>・
+        <strong>{settings.mealType}</strong>
+      </div>
+    </div>
+  );
+
   const contentMap = {
     fridge: fridgeContent,
     scan: scanContent,
@@ -1061,6 +1123,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       />
     ),
     history: historyContent,
+    settings: settingsContent,
   };
 
   /* ---- スマホレイアウト ---- */
