@@ -1,4 +1,25 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Component } from "react";
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("Tab render error:", error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
+          <div style={{ fontWeight: 700, color: "#333", marginBottom: 8 }}>表示エラーが発生しました</div>
+          <div style={{ fontSize: 13, color: "#999", marginBottom: 20 }}>{String(this.state.error)}</div>
+          <button onClick={() => this.setState({ error: null })} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: "#2E7D5A", color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+            再試行
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const STORAGE_KEY = "fridge-ingredients";
 const SUGGEST_COUNT_KEY = "fridge-suggest-count";
@@ -963,107 +984,23 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     </div>
   );
 
-  const allPresetNames = PRESET_SEASONINGS.flatMap(g => g.items);
-  const customSeasonings = Object.keys(seasonings).filter(k => !allPresetNames.includes(k));
-  const checkedCount = Object.values(seasonings).filter(Boolean).length;
-
-  const condimentsContent = (
-    <div style={{ maxWidth: isMobile ? "100%" : 640, margin: "0 auto" }}>
-      <div style={{ fontSize: 13, color: "#999", marginBottom: 16 }}>
-        持っている調味料にチェックを入れてください。料理提案でAIが活用します。
-      </div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#2E7D5A", marginBottom: 16 }}>
-        ✅ {checkedCount}種類の調味料が登録済み
-      </div>
-      {PRESET_SEASONINGS.map(group => (
-        <div key={group.group} style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>{group.group}</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {group.items.map(name => {
-              const checked = !!seasonings[name];
-              return (
-                <button
-                  key={name}
-                  onClick={() => toggleSeasoning(name)}
-                  style={{
-                    padding: "7px 14px", borderRadius: 20, border: `1.5px solid ${checked ? "#2E7D5A" : "#E8E8E8"}`,
-                    background: checked ? "#E8F5EE" : "#F9F9F9",
-                    color: checked ? "#2E7D5A" : "#888",
-                    fontWeight: checked ? 700 : 500, fontSize: 13, cursor: "pointer",
-                    display: "flex", alignItems: "center", gap: 5,
-                  }}
-                >
-                  <span>{checked ? "✓" : "+"}</span>
-                  <span>{name}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-
-      {customSeasonings.length > 0 && (
-        <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>カスタム</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {customSeasonings.map(name => {
-              const checked = !!seasonings[name];
-              return (
-                <div key={name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <button
-                    onClick={() => toggleSeasoning(name)}
-                    style={{
-                      padding: "7px 14px", borderRadius: 20, border: `1.5px solid ${checked ? "#2E7D5A" : "#E8E8E8"}`,
-                      background: checked ? "#E8F5EE" : "#F9F9F9",
-                      color: checked ? "#2E7D5A" : "#888",
-                      fontWeight: checked ? 700 : 500, fontSize: 13, cursor: "pointer",
-                      display: "flex", alignItems: "center", gap: 5,
-                    }}
-                  >
-                    <span>{checked ? "✓" : "+"}</span>
-                    <span>{name}</span>
-                  </button>
-                  <button
-                    onClick={() => removeCustomSeasoning(name)}
-                    style={{ width: 22, height: 22, border: "none", borderRadius: "50%", background: "#FFE8E8", color: "#FF6B6B", fontSize: 12, cursor: "pointer", fontWeight: 700, padding: 0 }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>リストにない調味料を追加</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            style={{ flex: 1, padding: "10px 12px", border: "1.5px solid #E8E8E8", borderRadius: 10, fontSize: 14, outline: "none" }}
-            value={customSeasoningInput}
-            onChange={e => setCustomSeasoningInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSeasoning(); } }}
-            placeholder="例：ナンプラー、粒マスタード"
-          />
-          <button
-            onClick={addCustomSeasoning}
-            disabled={!customSeasoningInput.trim()}
-            style={{
-              padding: "10px 18px", border: "none", borderRadius: 10,
-              background: customSeasoningInput.trim() ? "#2E7D5A" : "#E8E8E8",
-              color: customSeasoningInput.trim() ? "#fff" : "#BBB",
-              fontWeight: 700, fontSize: 14, cursor: customSeasoningInput.trim() ? "pointer" : "default",
-            }}
-          >
-            追加
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const contentMap = { fridge: fridgeContent, scan: scanContent, suggest: suggestContent, condiments: condimentsContent, history: historyContent };
+  const contentMap = {
+    fridge: fridgeContent,
+    scan: scanContent,
+    suggest: suggestContent,
+    condiments: (
+      <CondimentsTab
+        seasonings={seasonings}
+        toggleSeasoning={toggleSeasoning}
+        removeCustomSeasoning={removeCustomSeasoning}
+        customSeasoningInput={customSeasoningInput}
+        setCustomSeasoningInput={setCustomSeasoningInput}
+        addCustomSeasoning={addCustomSeasoning}
+        isMobile={isMobile}
+      />
+    ),
+    history: historyContent,
+  };
 
   /* ---- スマホレイアウト ---- */
   if (isMobile) {
@@ -1093,7 +1030,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
           </div>
         </div>
         <div style={{ padding: 16, paddingBottom: 100 }}>
-          {contentMap[tab]}
+          <ErrorBoundary key={tab}>{contentMap[tab]}</ErrorBoundary>
         </div>
         <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       </div>
@@ -1177,3 +1114,98 @@ const secondaryBtn = {
   background: "#fff", color: "#2E7D5A",
   fontWeight: 700, fontSize: 15, cursor: "pointer"
 };
+
+function CondimentsTab({ seasonings, toggleSeasoning, removeCustomSeasoning, customSeasoningInput, setCustomSeasoningInput, addCustomSeasoning, isMobile }) {
+  const safe = seasonings && typeof seasonings === "object" && !Array.isArray(seasonings) ? seasonings : {};
+  const allPresetNames = PRESET_SEASONINGS.flatMap(g => g.items);
+  const customSeasonings = Object.keys(safe).filter(k => !allPresetNames.includes(k));
+  const checkedCount = Object.values(safe).filter(Boolean).length;
+
+  return (
+    <div style={{ maxWidth: isMobile ? "100%" : 640, margin: "0 auto" }}>
+      <div style={{ fontSize: 13, color: "#999", marginBottom: 16 }}>
+        持っている調味料にチェックを入れてください。料理提案でAIが活用します。
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#2E7D5A", marginBottom: 16 }}>
+        ✅ {checkedCount}種類の調味料が登録済み
+      </div>
+      {PRESET_SEASONINGS.map(group => (
+        <div key={group.group} style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>{group.group}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {group.items.map(name => {
+              const checked = !!safe[name];
+              return (
+                <button
+                  key={name}
+                  onClick={() => toggleSeasoning(name)}
+                  style={{
+                    padding: "7px 14px", borderRadius: 20, border: `1.5px solid ${checked ? "#2E7D5A" : "#E8E8E8"}`,
+                    background: checked ? "#E8F5EE" : "#F9F9F9",
+                    color: checked ? "#2E7D5A" : "#888",
+                    fontWeight: checked ? 700 : 500, fontSize: 13, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 5,
+                  }}
+                >
+                  <span>{checked ? "✓" : "+"}</span>
+                  <span>{name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      {customSeasonings.length > 0 && (
+        <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>カスタム</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {customSeasonings.map(name => {
+              const checked = !!safe[name];
+              return (
+                <div key={name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button
+                    onClick={() => toggleSeasoning(name)}
+                    style={{
+                      padding: "7px 14px", borderRadius: 20, border: `1.5px solid ${checked ? "#2E7D5A" : "#E8E8E8"}`,
+                      background: checked ? "#E8F5EE" : "#F9F9F9", color: checked ? "#2E7D5A" : "#888",
+                      fontWeight: checked ? 700 : 500, fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 5,
+                    }}
+                  >
+                    <span>{checked ? "✓" : "+"}</span><span>{name}</span>
+                  </button>
+                  <button
+                    onClick={() => removeCustomSeasoning(name)}
+                    style={{ width: 22, height: 22, border: "none", borderRadius: "50%", background: "#FFE8E8", color: "#FF6B6B", fontSize: 12, cursor: "pointer", fontWeight: 700, padding: 0 }}
+                  >✕</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 12 }}>リストにない調味料を追加</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            style={{ flex: 1, padding: "10px 12px", border: "1.5px solid #E8E8E8", borderRadius: 10, fontSize: 14, outline: "none" }}
+            value={customSeasoningInput}
+            onChange={e => setCustomSeasoningInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomSeasoning(); } }}
+            placeholder="例：ナンプラー、粒マスタード"
+          />
+          <button
+            onClick={addCustomSeasoning}
+            disabled={!customSeasoningInput.trim()}
+            style={{
+              padding: "10px 18px", border: "none", borderRadius: 10,
+              background: customSeasoningInput.trim() ? "#2E7D5A" : "#E8E8E8",
+              color: customSeasoningInput.trim() ? "#fff" : "#BBB",
+              fontWeight: 700, fontSize: 14, cursor: customSeasoningInput.trim() ? "pointer" : "default",
+            }}
+          >追加</button>
+        </div>
+      </div>
+    </div>
+  );
+}
