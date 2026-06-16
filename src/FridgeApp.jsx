@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 const STORAGE_KEY = "fridge-ingredients";
 const SUGGEST_COUNT_KEY = "fridge-suggest-count";
-const FREE_LIMIT = 1;
+const FREE_LIMIT = Infinity;
 
 const categoryEmoji = {
   野菜: "🥬", 肉: "🥩", 魚: "🐟", 乳製品: "🧀", 卵: "🥚",
