@@ -166,6 +166,18 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
     setExpiryDate(calcExpiryDate(category, val));
   }
 
+  function getInputStep(u) {
+    if (["g", "ml"].includes(u)) return 100;
+    if (["kg", "L"].includes(u)) return 0.1;
+    return 1;
+  }
+
+  function handleUnitChange(u) {
+    setUnit(u);
+    const step = getInputStep(u);
+    setQuantity(String(step));
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
     const qty = parseFloat(quantity);
@@ -216,15 +228,15 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
               <input
                 style={inputStyle}
                 type="number"
-                min="0.1"
-                step="0.1"
+                min={getInputStep(unit)}
+                step={getInputStep(unit)}
                 value={quantity}
                 onChange={e => setQuantity(e.target.value)}
               />
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>単位</label>
-              <select style={selectStyle} value={unit} onChange={e => setUnit(e.target.value)}>
+              <select style={selectStyle} value={unit} onChange={e => handleUnitChange(e.target.value)}>
                 {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
