@@ -13,6 +13,18 @@ const categoryEmoji = {
 const CATEGORIES = Object.keys(categoryEmoji);
 const UNITS = ["個", "本", "枚", "袋", "パック", "g", "kg", "ml", "L", "束", "缶", "箱"];
 
+const DEFAULT_SHELF_DAYS = {
+  肉: 3, 魚: 2, 野菜: 7, 乳製品: 7, 卵: 21,
+  果物: 5, 穀物: 180, 調味料: 365, 飲み物: 30, その他: 7,
+};
+
+function calcExpiryDate(category) {
+  const days = DEFAULT_SHELF_DAYS[category] ?? 7;
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
 function getCategoryEmoji(category) {
   return categoryEmoji[category] || "🍱";
 }
@@ -134,8 +146,13 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
   const [quantity, setQuantity] = useState(initial ? String(initial.quantity) : "1");
   const [unit, setUnit] = useState(initial?.unit || "個");
   const [category, setCategory] = useState(initial?.category || "その他");
-  const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || "");
+  const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || calcExpiryDate(initial?.category || "その他"));
   const isEdit = !!initial;
+
+  function handleCategoryChange(cat) {
+    setCategory(cat);
+    if (!isEdit) setExpiryDate(calcExpiryDate(cat));
+  }
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -145,6 +162,7 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
       name: name.trim(), quantity: qty, unit, category,
       addedAt: initial?.addedAt || new Date().toISOString().split("T")[0],
       expiryDate: expiryDate || null,
+      urgent: initial?.urgent || false,
     };
     onAdd(item, initial?.name);
   }
@@ -201,14 +219,14 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
           </div>
           <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>カテゴリ</label>
-            <select style={selectStyle} value={category} onChange={e => setCategory(e.target.value)}>
+            <select style={selectStyle} value={category} onChange={e => handleCategoryChange(e.target.value)}>
               {CATEGORIES.map(c => (
                 <option key={c} value={c}>{getCategoryEmoji(c)} {c}</option>
               ))}
             </select>
           </div>
           <div style={{ marginBottom: 22 }}>
-            <label style={labelStyle}>賞味期限（任意）</label>
+            <label style={labelStyle}>賞味期限 <span style={{ fontWeight: 400, color: "#BBB" }}>（カテゴリから自動設定・変更可）</span></label>
             <input
               style={inputStyle}
               type="date"
@@ -230,6 +248,7 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
 
 function ExpiryBadge({ item }) {
   const today = new Date();
+  if (item.urgent) return <div style={{ fontSize: 11, color: "#FF4444", fontWeight: 700, marginTop: 2 }}>🚨 早く使いたい</div>;
   if (item.expiryDate) {
     const days = Math.ceil((new Date(item.expiryDate) - today) / 86400000);
     if (days <= 0) return <div style={{ fontSize: 11, color: "#FF4444", fontWeight: 700, marginTop: 2 }}>⚠️ 期限切れ</div>;
@@ -312,6 +331,10 @@ export default function FridgeApp() {
     saveFridge(fridge.filter(i => i.name !== name));
   }
 
+  function toggleUrgent(name) {
+    saveFridge(fridge.map(i => i.name === name ? { ...i, urgent: !i.urgent } : i));
+  }
+
   function getStep(unit) {
     if (["g", "ml"].includes(unit)) return 50;
     if (["kg", "L"].includes(unit)) return 0.1;
@@ -377,7 +400,7 @@ export default function FridgeApp() {
 
       const clean = text.replace(/```json|```/g, "").trim();
       const today = new Date().toISOString().split("T")[0];
-      const items = JSON.parse(clean).map(i => ({ ...i, addedAt: today, expiryDate: null }));
+      const items = JSON.parse(clean).map(i => ({ ...i, addedAt: today, expiryDate: calcExpiryDate(i.category), urgent: false }));
       setScanResult(items);
     } catch {
       showToast("読み取りに失敗しました。別の画像を試してください。", "error");
@@ -450,6 +473,7 @@ export default function FridgeApp() {
     const today = new Date();
     const fridgeText = fridge.map(i => {
       let info = `${i.name} ${i.quantity}${i.unit}`;
+      if (i.urgent) info += `【優先：早く使いたい】`;
       if (i.expiryDate) {
         const days = Math.ceil((new Date(i.expiryDate) - today) / 86400000);
         if (days <= 0) info += `【期限切れ】`;
@@ -489,7 +513,7 @@ export default function FridgeApp() {
 }
 ・手順の量はすべて${servings}人分で記述してください
 ・手間レベル「${effortLabel}」に合った料理にしてください
-・【期限切れ】【期限まで○日】【登録から○日経過】の食材は優先的に使ってください
+・【優先：早く使いたい】【期限切れ】【期限まで○日】【登録から○日経過】の食材は最優先で使ってください
 JSONのみ返し、説明文やMarkdownは不要です。`
       );
 
@@ -589,6 +613,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
                         {getStep(item.unit) !== 1 && <div style={{ fontSize: 10, color: "#BBB" }}>±{getStep(item.unit)}</div>}
                       </div>
                       <button onClick={() => adjustQty(item.name, 1)} style={btnStyle("#E8F5EE", "#2E7D5A")}>＋</button>
+                      <button onClick={() => toggleUrgent(item.name)} style={btnStyle(item.urgent ? "#FFF0F0" : "#F5F5F5", item.urgent ? "#FF4444" : "#CCC")} title="早く使いたい">🚨</button>
                       <button onClick={() => setEditingItem(item)} style={btnStyle("#F0F4FF", "#4A6FD4")}>✎</button>
                       <button onClick={() => removeIngredient(item.name)} style={btnStyle("#FFF0F0", "#FF6B6B")}>✕</button>
                     </div>
