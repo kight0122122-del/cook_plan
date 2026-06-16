@@ -855,8 +855,8 @@ JSONのみ返し、説明文やMarkdownは不要です。`
                     boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
                     opacity: item.quantity === 0 ? 0.7 : 1,
                   }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 15, color: item.quantity === 0 ? "#BBB" : "#1A1A1A" }}>{item.name}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 15, color: item.quantity === 0 ? "#BBB" : "#1A1A1A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
                       {item.quantity === 0
                         ? <div style={{ fontSize: 12, color: "#FF6B6B", fontWeight: 700, marginTop: 2 }}>在庫切れ</div>
                         : <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{item.quantity}{item.unit}</div>
