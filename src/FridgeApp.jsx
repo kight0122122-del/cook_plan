@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 const STORAGE_KEY = "fridge-ingredients";
 const SUGGEST_COUNT_KEY = "fridge-suggest-count";
+const HISTORY_KEY = "fridge-history";
 const FREE_LIMIT = Infinity;
 
 const categoryEmoji = {
@@ -226,6 +227,7 @@ function useIsMobile() {
 export default function FridgeApp() {
   const isMobile = useIsMobile();
   const [fridge, setFridge] = useState([]);
+  const [history, setHistory] = useState([]);
   const [tab, setTab] = useState("fridge");
   const [scanning, setScanning] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
@@ -250,6 +252,8 @@ export default function FridgeApp() {
       if (stored) setFridge(JSON.parse(stored));
       const count = parseInt(localStorage.getItem(SUGGEST_COUNT_KEY) || "0", 10);
       setSuggestCount(count);
+      const hist = localStorage.getItem(HISTORY_KEY);
+      if (hist) setHistory(JSON.parse(hist));
     } catch {}
   }, []);
 
@@ -421,6 +425,20 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       }).filter(i => i.quantity > 0);
     }
     saveFridge(updated);
+
+    const record = {
+      id: Date.now(),
+      date: new Date().toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" }),
+      name: suggestion.name,
+      description: suggestion.description,
+      cookTime: suggestion.cookTime,
+      servings,
+      usedIngredients: suggestion.usedIngredients,
+    };
+    const newHistory = [record, ...history].slice(0, 50);
+    setHistory(newHistory);
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory)); } catch {}
+
     setSuggestion(null);
     setShowPrefs(true);
     setTab("fridge");
@@ -441,7 +459,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
 
   const remainingFree = Math.max(0, FREE_LIMIT - suggestCount);
 
-  const tabs = [["fridge", "🧊", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"]];
+  const tabs = [["fridge", "🧊", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["history", "📖", "履歴"]];
 
   function switchTab(key) {
     setTab(key);
@@ -647,7 +665,40 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     </div>
   );
 
-  const contentMap = { fridge: fridgeContent, scan: scanContent, suggest: suggestContent };
+  const historyContent = (
+    <div style={{ maxWidth: isMobile ? "100%" : 640 }}>
+      {history.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: "#BBB" }}>
+          <div style={{ fontSize: 60, marginBottom: 12 }}>📖</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#CCC" }}>まだ履歴がありません</div>
+          <div style={{ fontSize: 13, marginTop: 8 }}>「これを作る！」を押すと記録されます</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {history.map(rec => (
+            <div key={rec.id} style={{ background: "#fff", borderRadius: 16, padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <div style={{ fontWeight: 800, fontSize: 17, color: "#1A1A1A" }}>{rec.name}</div>
+                <div style={{ fontSize: 12, color: "#BBB", whiteSpace: "nowrap", marginLeft: 12 }}>{rec.date}</div>
+              </div>
+              <div style={{ fontSize: 13, color: "#888", marginBottom: 10 }}>{rec.description}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ background: "#F0F0F0", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#666" }}>⏱ {rec.cookTime}</span>
+                <span style={{ background: "#F0F0F0", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#666" }}>👥 {rec.servings}人分</span>
+                {rec.usedIngredients?.map((ing, i) => (
+                  <span key={i} style={{ background: "#E8F5EE", padding: "3px 10px", borderRadius: 20, fontSize: 12, color: "#2E7D5A" }}>
+                    {ing.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const contentMap = { fridge: fridgeContent, scan: scanContent, suggest: suggestContent, history: historyContent };
 
   /* ---- スマホレイアウト ---- */
   if (isMobile) {
