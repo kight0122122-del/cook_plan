@@ -53,9 +53,63 @@ const FROZEN_SHELF_DAYS = {
   果物: 30, 穀物: 365, 麺類: 365, 飲み物: 60, その他: 30,
 };
 
-function calcExpiryDate(category, frozen = false) {
-  const table = frozen ? FROZEN_SHELF_DAYS : DEFAULT_SHELF_DAYS;
-  const days = table[category] ?? 7;
+// 食材名ベースの詳細賞味期限（日数）
+const INGREDIENT_SHELF_DAYS = {
+  // 肉類
+  鶏もも肉: 2, 鶏むね肉: 2, 鶏ささみ: 2, 鶏皮: 2,
+  豚バラ: 2, 豚ロース: 2, 豚こま: 2, 豚肩ロース: 2,
+  牛肉: 2, 牛バラ: 2, 牛ロース: 2,
+  ひき肉: 1, 鶏ひき肉: 1, 豚ひき肉: 1, 合挽き肉: 1, 合いびき肉: 1,
+  ベーコン: 7, ハム: 5, ソーセージ: 5, ウインナー: 5, チャーシュー: 4,
+  // 魚介類
+  刺身: 1, さしみ: 1, 鮭: 3, 塩鮭: 5, さば: 2, あじ: 2, いわし: 1,
+  たら: 2, ぶり: 2, まぐろ: 2, 鮪: 2, かつお: 1,
+  いか: 1, たこ: 2, えび: 2, ホタテ: 2, あさり: 2, しじみ: 3,
+  // 野菜
+  キャベツ: 14, レタス: 5, ほうれん草: 4, 小松菜: 4, 白菜: 14,
+  大根: 14, にんじん: 14, じゃがいも: 30, 玉ねぎ: 30, たまねぎ: 30,
+  もやし: 2, きゅうり: 7, トマト: 7, なす: 7, ピーマン: 7, パプリカ: 7,
+  ブロッコリー: 5, カリフラワー: 7, アスパラ: 4, ズッキーニ: 7,
+  ねぎ: 10, 長ねぎ: 10, 小ねぎ: 5, にら: 5, しそ: 5, 大葉: 5,
+  しめじ: 5, えのき: 5, まいたけ: 5, しいたけ: 7, エリンギ: 7, なめこ: 5,
+  豆腐: 3, 絹豆腐: 3, 木綿豆腐: 4, 厚揚げ: 3, 油揚げ: 5, こんにゃく: 7,
+  ゴボウ: 10, れんこん: 10, さつまいも: 30, かぼちゃ: 14, とうもろこし: 3,
+  セロリ: 7, ごぼう: 10,
+  // 乳製品
+  牛乳: 7, 豆乳: 5, ヨーグルト: 7, プレーンヨーグルト: 7,
+  チーズ: 14, スライスチーズ: 14, 粉チーズ: 60,
+  生クリーム: 5, バター: 30,
+  // 卵
+  卵: 21, たまご: 21,
+  // 麺類
+  うどん: 3, 生うどん: 3, 冷凍うどん: 90, そば: 3, 生そば: 3,
+  ラーメン: 5, 生ラーメン: 5, パスタ: 730, そうめん: 730, ひやむぎ: 730,
+  // 果物
+  バナナ: 7, りんご: 14, みかん: 14, いちご: 3, ぶどう: 5,
+  もも: 5, 桃: 5, なし: 10, 梨: 10, キウイ: 7, メロン: 5,
+  // 加工品
+  豆乳: 7, 納豆: 7, かまぼこ: 5, ちくわ: 5, はんぺん: 5,
+};
+
+function calcExpiryDate(category, frozen = false, ingredientName = "") {
+  if (frozen) {
+    const days = FROZEN_SHELF_DAYS[category] ?? 30;
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split("T")[0];
+  }
+  // 食材名で詳細マッチング（部分一致）
+  if (ingredientName) {
+    const match = Object.entries(INGREDIENT_SHELF_DAYS).find(([key]) =>
+      ingredientName.includes(key) || key.includes(ingredientName)
+    );
+    if (match) {
+      const d = new Date();
+      d.setDate(d.getDate() + match[1]);
+      return d.toISOString().split("T")[0];
+    }
+  }
+  const days = DEFAULT_SHELF_DAYS[category] ?? 7;
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
@@ -174,17 +228,22 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
   const [unit, setUnit] = useState(initial?.unit || "個");
   const [category, setCategory] = useState(initial?.category || "その他");
   const [frozen, setFrozen] = useState(initial?.frozen || false);
-  const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || calcExpiryDate(initial?.category || "その他", initial?.frozen || false));
+  const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || calcExpiryDate(initial?.category || "その他", initial?.frozen || false, initial?.name || ""));
   const isEdit = !!initial;
 
   function handleCategoryChange(cat) {
     setCategory(cat);
-    setExpiryDate(calcExpiryDate(cat, frozen));
+    setExpiryDate(calcExpiryDate(cat, frozen, name));
   }
 
   function handleFrozenChange(val) {
     setFrozen(val);
-    setExpiryDate(calcExpiryDate(category, val));
+    setExpiryDate(calcExpiryDate(category, val, name));
+  }
+
+  function handleNameChange(val) {
+    setName(val);
+    setExpiryDate(calcExpiryDate(category, frozen, val));
   }
 
   function getInputStep(u) {
@@ -243,7 +302,7 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
             <input
               style={inputStyle}
               value={name}
-              onChange={e => setName(e.target.value)}
+              onChange={e => handleNameChange(e.target.value)}
               placeholder="例：鶏もも肉"
               autoFocus
             />
@@ -494,7 +553,7 @@ export default function FridgeApp() {
 
       const clean = text.replace(/```json|```/g, "").trim();
       const today = new Date().toISOString().split("T")[0];
-      const items = JSON.parse(clean).map(i => ({ ...i, addedAt: today, expiryDate: calcExpiryDate(i.category), urgent: false }));
+      const items = JSON.parse(clean).map(i => ({ ...i, addedAt: today, expiryDate: calcExpiryDate(i.category, false, i.name), urgent: false }));
       setScanResult(items);
     } catch {
       showToast("読み取りに失敗しました。別の画像を試してください。", "error");
@@ -636,7 +695,12 @@ JSONのみ返し、説明文やMarkdownは不要です。`
           || i.name.includes(used.name)
           || used.name.includes(i.name);
         if (!match) return i;
-        return { ...i, quantity: Math.max(0, i.quantity - used.quantity) };
+        const newQty = Math.max(0, i.quantity - used.quantity);
+        // 単位が違う場合は提案の単位に統一
+        if (i.unit !== used.unit) {
+          return { ...i, quantity: newQty, unit: used.unit };
+        }
+        return { ...i, quantity: newQty };
       });
     }
     saveFridge(updated);
