@@ -129,17 +129,18 @@ function LoginModal({ onClose }) {
   );
 }
 
-function AddIngredientModal({ onAdd, onClose }) {
-  const [name, setName] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [unit, setUnit] = useState("個");
-  const [category, setCategory] = useState("その他");
+function AddIngredientModal({ onAdd, onClose, initial = null }) {
+  const [name, setName] = useState(initial?.name || "");
+  const [quantity, setQuantity] = useState(initial ? String(initial.quantity) : "1");
+  const [unit, setUnit] = useState(initial?.unit || "個");
+  const [category, setCategory] = useState(initial?.category || "その他");
+  const isEdit = !!initial;
 
   function handleSubmit(e) {
     e.preventDefault();
     const qty = parseFloat(quantity);
     if (!name.trim() || isNaN(qty) || qty <= 0) return;
-    onAdd({ name: name.trim(), quantity: qty, unit, category });
+    onAdd({ name: name.trim(), quantity: qty, unit, category }, initial?.name);
   }
 
   const inputStyle = {
@@ -160,7 +161,7 @@ function AddIngredientModal({ onAdd, onClose }) {
         padding: "28px 24px 40px", maxWidth: 480, margin: "0 auto",
       }}>
         <div style={{ fontSize: 17, fontWeight: 800, color: "#1A1A1A", marginBottom: 20 }}>
-          ✏️ 食材を手動追加
+          {isEdit ? "✏️ 食材を編集" : "✏️ 食材を手動追加"}
         </div>
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 14 }}>
@@ -201,7 +202,7 @@ function AddIngredientModal({ onAdd, onClose }) {
             </select>
           </div>
           <button type="submit" style={primaryBtn} disabled={!name.trim()}>
-            追加する
+            {isEdit ? "保存する" : "追加する"}
           </button>
         </form>
         <button onClick={onClose} style={{ width: "100%", padding: 14, border: "none", background: "none", color: "#AAA", fontSize: 14, cursor: "pointer", marginTop: 8 }}>
@@ -237,6 +238,7 @@ export default function FridgeApp() {
   const [toast, setToast] = useState(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
   const [suggestCount, setSuggestCount] = useState(0);
 
   const [servings, setServings] = useState(2);
@@ -287,17 +289,24 @@ export default function FridgeApp() {
     saveFridge(updated);
   }
 
-  function handleAddIngredient(item) {
-    const updated = [...fridge];
-    const existing = updated.find(i => i.name === item.name);
-    if (existing) {
-      existing.quantity += item.quantity;
+  function handleAddIngredient(item, originalName = null) {
+    let updated = [...fridge];
+    if (originalName) {
+      updated = updated.map(i => i.name === originalName ? { ...item } : i);
+      saveFridge(updated);
+      setEditingItem(null);
+      showToast(`${item.name}を更新しました！`);
     } else {
-      updated.push(item);
+      const existing = updated.find(i => i.name === item.name);
+      if (existing) {
+        existing.quantity += item.quantity;
+      } else {
+        updated.push(item);
+      }
+      saveFridge(updated);
+      setShowAddModal(false);
+      showToast(`${item.name}を追加しました！`);
     }
-    saveFridge(updated);
-    setShowAddModal(false);
-    showToast(`${item.name}を追加しました！`);
   }
 
   async function handleImageUpload(e) {
@@ -497,6 +506,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
                       <button onClick={() => adjustQty(item.name, -1)} style={btnStyle("#F5F5F5", "#666")}>−</button>
                       <span style={{ fontSize: 15, fontWeight: 700, color: "#333", minWidth: 20, textAlign: "center" }}>{item.quantity}</span>
                       <button onClick={() => adjustQty(item.name, 1)} style={btnStyle("#E8F5EE", "#2E7D5A")}>＋</button>
+                      <button onClick={() => setEditingItem(item)} style={btnStyle("#F0F4FF", "#4A6FD4")}>✎</button>
                       <button onClick={() => removeIngredient(item.name)} style={btnStyle("#FFF0F0", "#FF6B6B")}>✕</button>
                     </div>
                   </div>
@@ -741,6 +751,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       {toast && <Toast toast={toast} />}
       {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
       {showAddModal && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setShowAddModal(false)} />}
+      {editingItem && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setEditingItem(null)} initial={editingItem} />}
 
       {/* サイドバー */}
       <div style={{
