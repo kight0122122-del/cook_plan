@@ -280,10 +280,17 @@ export default function FridgeApp() {
     saveFridge(fridge.filter(i => i.name !== name));
   }
 
-  function adjustQty(name, delta) {
+  function getStep(unit) {
+    if (["g", "ml"].includes(unit)) return 50;
+    if (["kg", "L"].includes(unit)) return 0.1;
+    return 1;
+  }
+
+  function adjustQty(name, direction) {
     const updated = fridge.map(i => {
       if (i.name !== name) return i;
-      const newQty = Math.max(0, i.quantity + delta);
+      const step = getStep(i.unit);
+      const newQty = Math.max(0, Math.round((i.quantity + direction * step) * 10) / 10);
       return { ...i, quantity: newQty };
     }).filter(i => i.quantity > 0);
     saveFridge(updated);
@@ -504,7 +511,10 @@ JSONのみ返し、説明文やMarkdownは不要です。`
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <button onClick={() => adjustQty(item.name, -1)} style={btnStyle("#F5F5F5", "#666")}>−</button>
-                      <span style={{ fontSize: 15, fontWeight: 700, color: "#333", minWidth: 20, textAlign: "center" }}>{item.quantity}</span>
+                      <div style={{ textAlign: "center", minWidth: 36 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>{item.quantity}</div>
+                        {getStep(item.unit) !== 1 && <div style={{ fontSize: 10, color: "#BBB" }}>±{getStep(item.unit)}</div>}
+                      </div>
                       <button onClick={() => adjustQty(item.name, 1)} style={btnStyle("#E8F5EE", "#2E7D5A")}>＋</button>
                       <button onClick={() => setEditingItem(item)} style={btnStyle("#F0F4FF", "#4A6FD4")}>✎</button>
                       <button onClick={() => removeIngredient(item.name)} style={btnStyle("#FFF0F0", "#FF6B6B")}>✕</button>
