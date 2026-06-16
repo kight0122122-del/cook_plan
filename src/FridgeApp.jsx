@@ -92,7 +92,7 @@ const INGREDIENT_SHELF_DAYS = {
   バナナ: 7, りんご: 14, みかん: 14, いちご: 3, ぶどう: 5,
   もも: 5, 桃: 5, なし: 10, 梨: 10, キウイ: 7, メロン: 5,
   // 加工品
-  豆乳: 7, 納豆: 7, かまぼこ: 5, ちくわ: 5, はんぺん: 5,
+  納豆: 7, かまぼこ: 5, ちくわ: 5, はんぺん: 5,
 };
 
 function calcExpiryDate(category, frozen = false, ingredientName = "") {
@@ -434,6 +434,13 @@ export default function FridgeApp() {
   const [shoppingList, setShoppingList] = useState([]);
   const [shoppingInput, setShoppingInput] = useState("");
   const [undoSnapshot, setUndoSnapshot] = useState(null);
+
+  // 改善4: ⋯メニュー用state
+  const [openMenuId, setOpenMenuId] = useState(null);
+  // 改善5: カテゴリ折りたたみ用state
+  const [collapsedCategories, setCollapsedCategories] = useState(new Set());
+  // 改善7: サブメニュー用state
+  const [showSubMenu, setShowSubMenu] = useState(false);
 
   const fileRef = useRef();
 
@@ -789,6 +796,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
     showToast("消費を取り消しました");
   }
 
+  // 改善3: resetSuggestはservings/effort/mealTypeをリセットしない
   function resetSuggest() {
     setSuggestion(null);
     setShowPrefs(true);
@@ -803,8 +811,12 @@ JSONのみ返し、説明文やMarkdownは不要です。`
 
   const remainingFree = Math.max(0, FREE_LIMIT - suggestCount);
 
-  const tabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["condiments", "🧂", "調味料"], ["history", "📖", "履歴"], ["shopping", "🛒", "買い物"], ["settings", "⚙️", "設定"]];
+  // 改善7: タブをmainTabs/subTabs/allTabsに分ける
+  const mainTabs = [["fridge", "🗄️", "冷蔵庫"], ["scan", "📷", "スキャン"], ["suggest", "✨", "提案"], ["shopping", "🛒", "買い物"]];
+  const subTabs = [["condiments", "🧂", "調味料"], ["history", "📖", "履歴"], ["settings", "⚙️", "設定"]];
+  const allTabs = [...mainTabs, ...subTabs];
 
+  // 改善3: switchTabでもservings/effort/mealTypeはリセットしない
   function switchTab(key) {
     setTab(key);
     if (key === "suggest") { setSuggestion(null); setShowPrefs(true); }
@@ -834,6 +846,19 @@ JSONのみ返し、説明文やMarkdownは不要です。`
           </div>
         </div>
       )}
+      {/* 改善2: 要注意サマリーバナー */}
+      {(() => {
+        const today = new Date();
+        const expired = fridge.filter(i => i.quantity > 0 && i.expiryDate && Math.ceil((new Date(i.expiryDate) - today) / 86400000) <= 0);
+        const soon = fridge.filter(i => i.quantity > 0 && i.expiryDate && Math.ceil((new Date(i.expiryDate) - today) / 86400000) > 0 && Math.ceil((new Date(i.expiryDate) - today) / 86400000) <= 3);
+        if (expired.length === 0 && soon.length === 0) return null;
+        return (
+          <div style={{ background: "#FFF5F5", border: "1px solid #FFCCCC", borderRadius: 12, padding: "10px 14px", marginBottom: 12, fontSize: 13 }}>
+            {expired.length > 0 && <span style={{ color: "#CC3333", fontWeight: 700, marginRight: 12 }}>⚠️ 期限切れ {expired.length}品</span>}
+            {soon.length > 0 && <span style={{ color: "#CC6600", fontWeight: 600 }}>🕐 もうすぐ期限 {soon.length}品</span>}
+          </div>
+        );
+      })()}
       {fridge.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 20px", color: "#BBB" }}>
           <div style={{ fontSize: 60, marginBottom: 12 }}>🗄️</div>
@@ -842,43 +867,78 @@ JSONのみ返し、説明文やMarkdownは不要です。`
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-          {Object.entries(grouped).map(([cat, items]) => (
-            <div key={cat} style={{ marginBottom: 4 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                <span>{getCategoryEmoji(cat)}</span> {cat.toUpperCase()}
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {items.map(item => (
-                  <div key={item.name} style={{
-                    background: item.quantity === 0 ? "#F9F9F9" : "#fff", borderRadius: 14, padding: "12px 16px",
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-                    opacity: item.quantity === 0 ? 0.7 : 1,
-                  }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 15, color: item.quantity === 0 ? "#BBB" : "#1A1A1A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
-                      {item.quantity === 0
-                        ? <div style={{ fontSize: 12, color: "#FF6B6B", fontWeight: 700, marginTop: 2 }}>在庫切れ</div>
-                        : <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{item.quantity}{item.unit}</div>
-                      }
-                      {item.quantity > 0 && <ExpiryBadge item={item} />}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button onClick={() => adjustQty(item.name, -1)} style={btnStyle("#F5F5F5", "#666")}>−</button>
-                      <div style={{ textAlign: "center", minWidth: 36 }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>{item.quantity}</div>
-                        {getStep(item.unit) !== 1 && <div style={{ fontSize: 10, color: "#BBB" }}>±{getStep(item.unit)}</div>}
+          {Object.entries(grouped).map(([cat, items]) => {
+            const isCollapsed = isMobile && collapsedCategories.has(cat);
+            return (
+              <div key={cat} style={{ marginBottom: 4 }}>
+                <div
+                  onClick={() => {
+                    if (!isMobile) return;
+                    setCollapsedCategories(prev => {
+                      const next = new Set(prev);
+                      next.has(cat) ? next.delete(cat) : next.add(cat);
+                      return next;
+                    });
+                  }}
+                  style={{ fontSize: 12, fontWeight: 700, color: "#999", letterSpacing: 1, marginBottom: 8, display: "flex", alignItems: "center", gap: 6, cursor: isMobile ? "pointer" : "default" }}
+                >
+                  <span>{getCategoryEmoji(cat)}</span>
+                  <span>{cat.toUpperCase()}</span>
+                  <span style={{ marginLeft: 4, color: "#BBB" }}>({items.length})</span>
+                  {isMobile && <span style={{ marginLeft: "auto", color: "#CCC" }}>{isCollapsed ? "▶" : "▼"}</span>}
+                </div>
+                {!isCollapsed && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {items.map(item => (
+                      <div key={item.name} style={{
+                        background: getCardBg(item), borderRadius: 14, padding: "12px 16px",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                        opacity: item.quantity === 0 ? 0.7 : 1,
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 15, color: item.quantity === 0 ? "#BBB" : "#1A1A1A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</div>
+                            {item.quantity === 0
+                              ? <div style={{ fontSize: 12, color: "#FF6B6B", fontWeight: 700, marginTop: 2 }}>在庫切れ</div>
+                              : <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{item.quantity}{item.unit}</div>
+                            }
+                            {item.quantity > 0 && <ExpiryBadge item={item} />}
+                          </div>
+                          {/* 改善4: −数量＋⋯の4要素 */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <button onClick={() => adjustQty(item.name, -1)} style={btnStyle("#F5F5F5", "#666")}>−</button>
+                            <div style={{ textAlign: "center", minWidth: 36 }}>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "#333" }}>{item.quantity}</div>
+                              {getStep(item.unit) !== 1 && <div style={{ fontSize: 10, color: "#BBB" }}>±{getStep(item.unit)}</div>}
+                            </div>
+                            <button onClick={() => adjustQty(item.name, 1)} style={btnStyle("#E8F5EE", "#2E7D5A")}>＋</button>
+                            <button onClick={() => setOpenMenuId(openMenuId === item.name ? null : item.name)} style={btnStyle("#F5F5F5", "#666")}>⋯</button>
+                          </div>
+                        </div>
+                        {/* 改善4: ⋯ポップアップメニュー */}
+                        {openMenuId === item.name && (
+                          <div style={{ display: "flex", gap: 8, padding: "8px 0 4px", flexWrap: "wrap" }}>
+                            <button onClick={() => { toggleUrgent(item.name); setOpenMenuId(null); }}
+                              style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: item.urgent ? "#FFF0F0" : "#F5F5F5", color: item.urgent ? "#FF4444" : "#666", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                              {item.urgent ? "🚨 優先解除" : "🚨 優先する"}
+                            </button>
+                            <button onClick={() => { setEditingItem(item); setOpenMenuId(null); }}
+                              style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#F0F4FF", color: "#4A6FD4", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                              ✎ 編集
+                            </button>
+                            <button onClick={() => { removeIngredient(item.name); setOpenMenuId(null); }}
+                              style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#FFF0F0", color: "#FF6B6B", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                              ✕ 削除
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <button onClick={() => adjustQty(item.name, 1)} style={btnStyle("#E8F5EE", "#2E7D5A")}>＋</button>
-                      <button onClick={() => toggleUrgent(item.name)} style={btnStyle(item.urgent ? "#FFF0F0" : "#F5F5F5", item.urgent ? "#FF4444" : "#CCC")} title="早く使いたい">🚨</button>
-                      <button onClick={() => setEditingItem(item)} style={btnStyle("#F0F4FF", "#4A6FD4")}>✎</button>
-                      <button onClick={() => removeIngredient(item.name)} style={btnStyle("#FFF0F0", "#FF6B6B")}>✕</button>
-                    </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <button onClick={() => setShowAddModal(true)} style={{
@@ -1133,12 +1193,17 @@ JSONのみ返し、説明文やMarkdownは不要です。`
                   </button>
                   <button
                     onClick={() => {
+                      // 改善6: 不足食材を買い物リストに自動追加
                       const missing = (rec.usedIngredients || []).filter(used => {
                         const found = fridge.find(i => i.name === used.name || i.name.includes(used.name) || used.name.includes(i.name));
                         return !found || found.quantity < used.quantity;
                       });
                       if (missing.length > 0) {
-                        showToast(`⚠️ ${missing.map(m => m.name).join('・')}が不足しています`, 'error');
+                        showToast(`⚠️ ${missing.map(m => m.name).join('・')}が不足 → 買い物リストに追加`, 'error');
+                        const newItems = missing
+                          .filter(m => !shoppingList.find(s => s.name === m.name))
+                          .map(m => ({ id: Date.now() + Math.random(), name: m.name, checked: false }));
+                        if (newItems.length > 0) saveShoppingList([...shoppingList, ...newItems]);
                       }
                       setSuggestion({ ...rec, usedIngredients: rec.usedIngredients });
                       setShowPrefs(false);
@@ -1303,9 +1368,10 @@ JSONのみ返し、説明文やMarkdownは不要です。`
               <div style={{ fontSize: 11, color: "#999", marginTop: 1 }}>{fridge.length}品 在庫中</div>
             </div>
           </div>
+          {/* 改善7: モバイルタブバー（mainTabs + ⋯） */}
           <div style={{ display: "flex", overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
-            {tabs.map(([key, emoji, label]) => (
-              <button key={key} onClick={() => switchTab(key)} style={{
+            {mainTabs.map(([key, emoji, label]) => (
+              <button key={key} onClick={() => { switchTab(key); setShowSubMenu(false); }} style={{
                 flexShrink: 0, padding: "10px 14px", border: "none", background: "none",
                 fontSize: 12, fontWeight: tab === key ? 700 : 500,
                 color: tab === key ? "#2E7D5A" : "#999",
@@ -1313,7 +1379,25 @@ JSONのみ返し、説明文やMarkdownは不要です。`
                 cursor: "pointer", whiteSpace: "nowrap",
               }}>{emoji} {label}</button>
             ))}
+            <button onClick={() => setShowSubMenu(!showSubMenu)} style={{
+              flexShrink: 0, padding: "10px 14px", border: "none", background: "none",
+              fontSize: 12, fontWeight: subTabs.some(([k]) => k === tab) ? 700 : 500,
+              color: subTabs.some(([k]) => k === tab) ? "#2E7D5A" : "#999",
+              borderBottom: subTabs.some(([k]) => k === tab) ? "2.5px solid #2E7D5A" : "2.5px solid transparent",
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}>⋯ もっと</button>
           </div>
+          {showSubMenu && (
+            <div style={{ background: "#fff", borderTop: "1px solid #F0EDE8" }}>
+              {subTabs.map(([key, emoji, label]) => (
+                <button key={key} onClick={() => { switchTab(key); setShowSubMenu(false); }} style={{
+                  width: "100%", padding: "12px 20px", border: "none", background: tab === key ? "#E8F5EE" : "none",
+                  color: tab === key ? "#2E7D5A" : "#666", fontWeight: tab === key ? 700 : 500,
+                  fontSize: 14, cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 10,
+                }}>{emoji} {label}</button>
+              ))}
+            </div>
+          )}
         </div>
         <div style={{ padding: 16, paddingBottom: 100 }}>
           <ErrorBoundary key={tab}>{contentMap[tab]}</ErrorBoundary>
@@ -1331,7 +1415,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       {showAddModal && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setShowAddModal(false)} />}
       {editingItem && <AddIngredientModal onAdd={handleAddIngredient} onClose={() => setEditingItem(null)} initial={editingItem} />}
 
-      {/* サイドバー */}
+      {/* サイドバー（PCはallTabsを全表示） */}
       <div style={{
         width: 240, background: "#fff", borderRight: "1px solid #F0EDE8",
         padding: "32px 20px", display: "flex", flexDirection: "column", gap: 8,
@@ -1344,7 +1428,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
             <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>{fridge.length}品 在庫中</div>
           </div>
         </div>
-        {tabs.map(([key, emoji, label]) => (
+        {allTabs.map(([key, emoji, label]) => (
           <button key={key} onClick={() => switchTab(key)} style={{
             width: "100%", padding: "12px 16px", border: "none", borderRadius: 12, textAlign: "left",
             background: tab === key ? "#E8F5EE" : "none",
@@ -1360,7 +1444,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
       {/* メインコンテンツ */}
       <div style={{ flex: 1, padding: "40px 48px", overflowY: "auto" }}>
         <div style={{ fontSize: 22, fontWeight: 900, color: "#1A1A1A", marginBottom: 24 }}>
-          {tabs.find(([key]) => key === tab)?.[1]} {tabs.find(([key]) => key === tab)?.[2]}
+          {allTabs.find(([key]) => key === tab)?.[1]} {allTabs.find(([key]) => key === tab)?.[2]}
         </div>
         {contentMap[tab]}
       </div>
@@ -1400,6 +1484,17 @@ const secondaryBtn = {
   background: "#fff", color: "#2E7D5A",
   fontWeight: 700, fontSize: 15, cursor: "pointer"
 };
+
+// 改善1: カード背景色を返す関数
+function getCardBg(item) {
+  if (item.quantity === 0) return "#F9F9F9";
+  if (item.expiryDate) {
+    const days = Math.ceil((new Date(item.expiryDate) - new Date()) / 86400000);
+    if (days <= 0) return "#FFF5F5";
+    if (days <= 3) return "#FFFBF0";
+  }
+  return "#fff";
+}
 
 function CondimentsTab({ seasonings, toggleSeasoning, removeCustomSeasoning, customSeasoningInput, setCustomSeasoningInput, addCustomSeasoning, isMobile }) {
   const safe = seasonings && typeof seasonings === "object" && !Array.isArray(seasonings) ? seasonings : {};
