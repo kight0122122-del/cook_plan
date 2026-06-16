@@ -18,8 +18,14 @@ const DEFAULT_SHELF_DAYS = {
   果物: 5, 穀物: 180, 調味料: 365, 飲み物: 30, その他: 7,
 };
 
-function calcExpiryDate(category) {
-  const days = DEFAULT_SHELF_DAYS[category] ?? 7;
+const FROZEN_SHELF_DAYS = {
+  肉: 30, 魚: 30, 野菜: 30, 乳製品: 30, 卵: 60,
+  果物: 30, 穀物: 365, 調味料: 365, 飲み物: 60, その他: 30,
+};
+
+function calcExpiryDate(category, frozen = false) {
+  const table = frozen ? FROZEN_SHELF_DAYS : DEFAULT_SHELF_DAYS;
+  const days = table[category] ?? 7;
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
@@ -146,12 +152,18 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
   const [quantity, setQuantity] = useState(initial ? String(initial.quantity) : "1");
   const [unit, setUnit] = useState(initial?.unit || "個");
   const [category, setCategory] = useState(initial?.category || "その他");
-  const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || calcExpiryDate(initial?.category || "その他"));
+  const [frozen, setFrozen] = useState(initial?.frozen || false);
+  const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || calcExpiryDate(initial?.category || "その他", initial?.frozen || false));
   const isEdit = !!initial;
 
   function handleCategoryChange(cat) {
     setCategory(cat);
-    if (!isEdit) setExpiryDate(calcExpiryDate(cat));
+    setExpiryDate(calcExpiryDate(cat, frozen));
+  }
+
+  function handleFrozenChange(val) {
+    setFrozen(val);
+    setExpiryDate(calcExpiryDate(category, val));
   }
 
   function handleSubmit(e) {
@@ -159,7 +171,7 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
     const qty = parseFloat(quantity);
     if (!name.trim() || isNaN(qty) || qty <= 0) return;
     const item = {
-      name: name.trim(), quantity: qty, unit, category,
+      name: name.trim(), quantity: qty, unit, category, frozen,
       addedAt: initial?.addedAt || new Date().toISOString().split("T")[0],
       expiryDate: expiryDate || null,
       urgent: initial?.urgent || false,
@@ -225,8 +237,24 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
               ))}
             </select>
           </div>
+          <div style={{ marginBottom: 14 }}>
+            <button
+              type="button"
+              onClick={() => handleFrozenChange(!frozen)}
+              style={{
+                width: "100%", padding: "10px 14px", borderRadius: 10, cursor: "pointer",
+                border: `1.5px solid ${frozen ? "#6BAED6" : "#E8E8E8"}`,
+                background: frozen ? "#EEF6FC" : "#F9F9F9",
+                color: frozen ? "#2171B5" : "#AAA",
+                fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              <span>❄️</span>
+              <span>{frozen ? "冷凍保存中" : "冷凍保存（タップで切り替え）"}</span>
+            </button>
+          </div>
           <div style={{ marginBottom: 22 }}>
-            <label style={labelStyle}>賞味期限 <span style={{ fontWeight: 400, color: "#BBB" }}>（カテゴリから自動設定・変更可）</span></label>
+            <label style={labelStyle}>賞味期限 <span style={{ fontWeight: 400, color: "#BBB" }}>（カテゴリ・冷凍設定から自動計算・変更可）</span></label>
             <input
               style={inputStyle}
               type="date"
@@ -249,6 +277,7 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
 function ExpiryBadge({ item }) {
   const today = new Date();
   if (item.urgent) return <div style={{ fontSize: 11, color: "#FF4444", fontWeight: 700, marginTop: 2 }}>🚨 早く使いたい</div>;
+  if (item.frozen) return <div style={{ fontSize: 11, color: "#2171B5", fontWeight: 600, marginTop: 2 }}>❄️ 冷凍保存中</div>;
   if (item.expiryDate) {
     const days = Math.ceil((new Date(item.expiryDate) - today) / 86400000);
     if (days <= 0) return <div style={{ fontSize: 11, color: "#FF4444", fontWeight: 700, marginTop: 2 }}>⚠️ 期限切れ</div>;
@@ -474,6 +503,7 @@ export default function FridgeApp() {
     const fridgeText = fridge.map(i => {
       let info = `${i.name} ${i.quantity}${i.unit}`;
       if (i.urgent) info += `【優先：早く使いたい】`;
+      if (i.frozen) info += `【冷凍保存中】`;
       if (i.expiryDate) {
         const days = Math.ceil((new Date(i.expiryDate) - today) / 86400000);
         if (days <= 0) info += `【期限切れ】`;
