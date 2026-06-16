@@ -134,13 +134,19 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
   const [quantity, setQuantity] = useState(initial ? String(initial.quantity) : "1");
   const [unit, setUnit] = useState(initial?.unit || "個");
   const [category, setCategory] = useState(initial?.category || "その他");
+  const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || "");
   const isEdit = !!initial;
 
   function handleSubmit(e) {
     e.preventDefault();
     const qty = parseFloat(quantity);
     if (!name.trim() || isNaN(qty) || qty <= 0) return;
-    onAdd({ name: name.trim(), quantity: qty, unit, category }, initial?.name);
+    const item = {
+      name: name.trim(), quantity: qty, unit, category,
+      addedAt: initial?.addedAt || new Date().toISOString().split("T")[0],
+      expiryDate: expiryDate || null,
+    };
+    onAdd(item, initial?.name);
   }
 
   const inputStyle = {
@@ -193,13 +199,22 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
               </select>
             </div>
           </div>
-          <div style={{ marginBottom: 22 }}>
+          <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>カテゴリ</label>
             <select style={selectStyle} value={category} onChange={e => setCategory(e.target.value)}>
               {CATEGORIES.map(c => (
                 <option key={c} value={c}>{getCategoryEmoji(c)} {c}</option>
               ))}
             </select>
+          </div>
+          <div style={{ marginBottom: 22 }}>
+            <label style={labelStyle}>賞味期限（任意）</label>
+            <input
+              style={inputStyle}
+              type="date"
+              value={expiryDate}
+              onChange={e => setExpiryDate(e.target.value)}
+            />
           </div>
           <button type="submit" style={primaryBtn} disabled={!name.trim()}>
             {isEdit ? "保存する" : "追加する"}
@@ -211,6 +226,23 @@ function AddIngredientModal({ onAdd, onClose, initial = null }) {
       </div>
     </div>
   );
+}
+
+function ExpiryBadge({ item }) {
+  const today = new Date();
+  if (item.expiryDate) {
+    const days = Math.ceil((new Date(item.expiryDate) - today) / 86400000);
+    if (days <= 0) return <div style={{ fontSize: 11, color: "#FF4444", fontWeight: 700, marginTop: 2 }}>⚠️ 期限切れ</div>;
+    if (days <= 1) return <div style={{ fontSize: 11, color: "#FF4444", fontWeight: 700, marginTop: 2 }}>⚠️ 今日まで</div>;
+    if (days <= 3) return <div style={{ fontSize: 11, color: "#FF8C00", fontWeight: 600, marginTop: 2 }}>⚠️ あと{days}日</div>;
+    return <div style={{ fontSize: 11, color: "#AAA", marginTop: 2 }}>期限 {item.expiryDate}</div>;
+  }
+  if (item.addedAt) {
+    const days = Math.ceil((today - new Date(item.addedAt)) / 86400000);
+    if (days >= 7) return <div style={{ fontSize: 11, color: "#FF8C00", fontWeight: 600, marginTop: 2 }}>📅 登録から{days}日</div>;
+    if (days > 0) return <div style={{ fontSize: 11, color: "#BBB", marginTop: 2 }}>📅 {days}日前に登録</div>;
+  }
+  return null;
 }
 
 const labelStyle = { fontSize: 12, fontWeight: 700, color: "#999", display: "block", marginBottom: 6 };
@@ -344,7 +376,8 @@ export default function FridgeApp() {
       );
 
       const clean = text.replace(/```json|```/g, "").trim();
-      const items = JSON.parse(clean);
+      const today = new Date().toISOString().split("T")[0];
+      const items = JSON.parse(clean).map(i => ({ ...i, addedAt: today, expiryDate: null }));
       setScanResult(items);
     } catch {
       showToast("読み取りに失敗しました。別の画像を試してください。", "error");
@@ -414,7 +447,19 @@ export default function FridgeApp() {
     setSuggestion(null);
     setShowPrefs(false);
 
-    const fridgeText = fridge.map(i => `${i.name} ${i.quantity}${i.unit}`).join("、");
+    const today = new Date();
+    const fridgeText = fridge.map(i => {
+      let info = `${i.name} ${i.quantity}${i.unit}`;
+      if (i.expiryDate) {
+        const days = Math.ceil((new Date(i.expiryDate) - today) / 86400000);
+        if (days <= 0) info += `【期限切れ】`;
+        else if (days <= 3) info += `【期限まで${days}日】`;
+      } else if (i.addedAt) {
+        const days = Math.ceil((today - new Date(i.addedAt)) / 86400000);
+        if (days >= 5) info += `【登録から${days}日経過】`;
+      }
+      return info;
+    }).join("、");
     const effortLabel = EFFORT_OPTIONS.find(e => e.value === effort)?.label;
     const effortDesc = EFFORT_OPTIONS.find(e => e.value === effort)?.desc;
 
@@ -444,6 +489,7 @@ export default function FridgeApp() {
 }
 ・手順の量はすべて${servings}人分で記述してください
 ・手間レベル「${effortLabel}」に合った料理にしてください
+・【期限切れ】【期限まで○日】【登録から○日経過】の食材は優先的に使ってください
 JSONのみ返し、説明文やMarkdownは不要です。`
       );
 
@@ -534,6 +580,7 @@ JSONのみ返し、説明文やMarkdownは不要です。`
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 15, color: "#1A1A1A" }}>{item.name}</div>
                       <div style={{ fontSize: 12, color: "#AAA", marginTop: 2 }}>{item.quantity}{item.unit}</div>
+                      <ExpiryBadge item={item} />
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <button onClick={() => adjustQty(item.name, -1)} style={btnStyle("#F5F5F5", "#666")}>−</button>
